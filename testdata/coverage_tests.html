@@ -1,0 +1,354 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>ansigo: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/Volte6/ansigo/ansigo.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package ansigo
+
+import (
+        "errors"
+        "regexp"
+        "strconv"
+        "strings"
+)
+
+const (
+        tagOpenStart  string = "&lt;ansi"
+        tagOpenEnd    string = "&gt;"
+        tagCloseStart string = "&lt;/ansi"
+        tagCloseEnd   string = "&gt;"
+        // regex result data indices
+        matchPosFull  int = 0
+        matchPosTag   int = 1
+        matchPosValue int = 2
+        // special values to modify 8 bit color codes
+        fgToBgIncrement int = 10
+        boldIncrement   int = 60
+)
+
+var (
+        // errors
+        errTagsNotFound error = errors.New("ansi tag not found")
+        // regular expressions
+        propertyRegex, _ = regexp.Compile(" (bg|fg|bold)=[\"']?([a-z0-9]+)[\"']?")
+        // map of strings to 4 bit color codes
+        colorMap map[string]int = map[string]int{
+                "black":   30,
+                "red":     31,
+                "green":   32,
+                "yellow":  33,
+                "blue":    34,
+                "magenta": 35,
+                "cyan":    36,
+                "white":   37,
+        }
+)
+
+type tagMatch struct {
+        startPos int
+        endPos   int
+}
+
+type ansiProperties struct {
+        fg   int
+        bg   int
+        bold bool
+}
+
+func Parse(str string) string <span class="cov6" title="16">{
+
+        //var tabs string = ""
+        var sBuilder strings.Builder
+        var nestedDepth int = 0
+        var tagStack []*ansiProperties = make([]*ansiProperties, 0, 2)
+        var nextTag *tagMatch = nil
+        var isCloseTag bool = false
+        var closeTagFullLength int = len(tagCloseStart + tagCloseEnd)
+
+        for </span><span class="cov8" title="68">{
+                isCloseTag = false
+                nextOpenTag, _ := extractParts(str, tagOpenStart, tagOpenEnd)
+                nextCloseTag, _ := extractParts(str, tagCloseStart, tagCloseEnd)
+
+                if nextCloseTag != nil &amp;&amp; nextCloseTag.endPos-nextCloseTag.startPos != closeTagFullLength </span><span class="cov1" title="1">{
+                        nextCloseTag = nil
+                }</span>
+
+                <span class="cov8" title="68">if nextOpenTag != nil </span><span class="cov7" title="37">{
+                        if nextCloseTag != nil </span><span class="cov7" title="35">{
+
+                                // Make sure the closing tag doesn't start before the end of the open tag
+                                // If it does, the open tag is invalid and we must use the close tag
+                                if nextCloseTag.startPos &lt; nextOpenTag.endPos </span><span class="cov5" title="11">{
+
+                                        nextOpenTag = nil
+                                        nextTag = nextCloseTag
+                                        isCloseTag = true
+
+                                }</span> else<span class="cov6" title="24"> {
+
+                                        // if the next open tag starts before the next closing tag, use it
+                                        if nextOpenTag.startPos &lt; nextCloseTag.startPos </span><span class="cov6" title="24">{
+                                                nextTag = nextOpenTag
+                                        }</span>
+                                }
+
+                        } else<span class="cov2" title="2"> {
+                                nextTag = nextOpenTag
+                        }</span>
+                } else<span class="cov7" title="31"> if nextCloseTag != nil </span><span class="cov5" title="15">{
+                        nextTag = nextCloseTag
+                        isCloseTag = true
+                }</span> else<span class="cov6" title="16"> {
+                        // no tags, only normal string remains
+                        sBuilder.WriteString(str)
+                        break</span>
+                }
+
+                // if there was a straggler string to start, add that
+                <span class="cov8" title="52">if nextTag.startPos != 0 </span><span class="cov7" title="34">{
+                        sBuilder.WriteString(str[:nextTag.startPos])
+                }</span>
+
+                // open tag, extract it and
+                // add it to the end of the stack
+                <span class="cov8" title="52">tagStack = append(tagStack, extractProperties(str[nextTag.startPos:nextTag.endPos]))
+
+                // Write the ansi value of the most recent tag extraction
+                if isCloseTag </span><span class="cov6" title="26">{
+
+                        // un-nest by 1
+                        if nestedDepth &gt; 0 </span><span class="cov6" title="24">{
+                                nestedDepth--
+                        }</span>
+
+                        <span class="cov6" title="26">if nestedDepth &gt; 0 </span><span class="cov3" title="4">{
+                                sBuilder.WriteString(tagStack[nestedDepth-1].AnsiCode())
+                        }</span> else<span class="cov6" title="22"> {
+                                sBuilder.WriteString(tagStack[nestedDepth].AnsiReset())
+                        }</span>
+
+                } else<span class="cov6" title="26"> {
+
+                        sBuilder.WriteString(tagStack[len(tagStack)-1].AnsiCode())
+                        // Now we are nested
+                        nestedDepth++
+
+                }</span>
+
+                // text remaining (inside) becomes new str
+                <span class="cov8" title="52">str = str[nextTag.endPos:]</span>
+
+        }
+
+        // if an ending tag was forgotten, reset all ansi color
+        <span class="cov6" title="16">if nestedDepth &gt; 0 </span><span class="cov2" title="2">{
+                sBuilder.WriteString(tagStack[nestedDepth-1].AnsiReset())
+        }</span>
+
+        <span class="cov6" title="16">return sBuilder.String()</span>
+}
+
+func extractParts(str string, strStart string, strEnd string) (matchData *tagMatch, err error) <span class="cov10" title="136">{
+
+        lPosStart := strings.Index(str, strStart)
+        strStartLen := len(strStart)
+
+        if lPosStart == -1 </span><span class="cov8" title="47">{
+                return nil, errTagsNotFound
+        }</span>
+
+        <span class="cov9" title="89">lPosEnd := strings.Index(str[lPosStart+strStartLen:], strEnd)
+
+        if lPosEnd == -1 </span><span class="cov1" title="1">{
+                return nil, errTagsNotFound
+        }</span>
+
+        <span class="cov9" title="88">return &amp;tagMatch{
+                        startPos: lPosStart,
+                        endPos:   lPosEnd + lPosStart + strStartLen + 1,
+                },
+                nil</span>
+}
+
+func (p *ansiProperties) AnsiReset() string <span class="cov6" title="24">{
+        return "\033[0m"
+}</span>
+
+func (p *ansiProperties) AnsiCode() string <span class="cov7" title="30">{
+        if p.fg == -1 &amp;&amp; p.bg == -1 </span><span class="cov3" title="3">{
+                return ""
+        }</span>
+
+        <span class="cov7" title="27">fgBoldMod := 0
+        bgBoldMod := 0
+
+        if p.bold </span><span class="cov3" title="3">{
+                if p.fg &lt; 90 </span><span class="cov3" title="3">{
+                        fgBoldMod = boldIncrement
+                }</span>
+                <span class="cov3" title="3">if p.bg &lt; 90 </span><span class="cov3" title="3">{
+                        bgBoldMod = boldIncrement
+                }</span>
+        }
+
+        <span class="cov7" title="27">if p.fg != -1 </span><span class="cov6" title="26">{
+                if p.bg != -1 </span><span class="cov6" title="22">{
+                        // fg and bg
+                        return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + ";" + strconv.Itoa(p.bg+bgBoldMod) + "m"
+                }</span>
+                // only fg
+                <span class="cov3" title="4">return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + "m"</span>
+        }
+
+        // only bg
+        <span class="cov1" title="1">return "\033[" + strconv.Itoa(p.bg+bgBoldMod) + "m"</span>
+}
+
+func extractProperties(tagStr string) *ansiProperties <span class="cov8" title="52">{
+
+        ret := &amp;ansiProperties{fg: -1, bg: -1}
+
+        result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
+        var err error
+        for _, val := range result </span><span class="cov8" title="47">{
+
+                switch val[matchPosTag] </span>{
+                case "fg":<span class="cov6" title="23">
+                        if ret.fg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov6" title="23">{
+                                // if couldn't find a number, check for a mapped string
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov6" title="22">{
+                                        ret.fg = val
+                                }</span> else<span class="cov1" title="1"> {
+                                        ret.fg = -1
+                                }</span>
+                        }
+                case "bg":<span class="cov6" title="20">
+                        if ret.bg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov6" title="19">{
+                                // if couldn't find a number, check for a mapped string
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov6" title="18">{
+                                        // increment value to make it a bg value
+                                        ret.bg = val + fgToBgIncrement
+                                }</span> else<span class="cov1" title="1"> {
+                                        ret.bg = -1
+                                }</span>
+                        }
+                case "bold":<span class="cov3" title="4">
+                        if ret.bold, err = strconv.ParseBool(val[matchPosValue]); err != nil </span><span class="cov1" title="1">{
+                                ret.bold = false
+                        }</span>
+                }
+                //fmt.Printf("%#v = %#v\n", val[matchPosTag], val[matchPosValue])
+
+        }
+
+        <span class="cov8" title="52">return ret</span>
+
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
