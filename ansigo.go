@@ -58,20 +58,36 @@ func Parse(str string) string {
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 2)
 	var nextTag *tagMatch = nil
 	var isCloseTag bool = false
+	var closeTagFullLength int = len(tagCloseStart + tagCloseEnd)
 
 	for {
 		isCloseTag = false
 		nextOpenTag, _ := extractParts(str, tagOpenStart, tagOpenEnd)
 		nextCloseTag, _ := extractParts(str, tagCloseStart, tagCloseEnd)
 
+		if nextCloseTag != nil && nextCloseTag.endPos-nextCloseTag.startPos != closeTagFullLength {
+			nextCloseTag = nil
+		}
+
 		if nextOpenTag != nil {
 			if nextCloseTag != nil {
-				if nextOpenTag.startPos < nextCloseTag.startPos {
-					nextTag = nextOpenTag
-				} else {
+
+				// Make sure the closing tag doesn't start before the end of the open tag
+				// If it does, the open tag is invalid and we must use the close tag
+				if nextCloseTag.startPos < nextOpenTag.endPos {
+
+					nextOpenTag = nil
 					nextTag = nextCloseTag
 					isCloseTag = true
+
+				} else {
+
+					// if the next open tag starts before the next closing tag, use it
+					if nextOpenTag.startPos < nextCloseTag.startPos {
+						nextTag = nextOpenTag
+					}
 				}
+
 			} else {
 				nextTag = nextOpenTag
 			}
@@ -97,7 +113,9 @@ func Parse(str string) string {
 		if isCloseTag {
 
 			// un-nest by 1
-			nestedDepth--
+			if nestedDepth > 0 {
+				nestedDepth--
+			}
 
 			if nestedDepth > 0 {
 				sBuilder.WriteString(tagStack[nestedDepth-1].AnsiCode())
@@ -154,7 +172,7 @@ func (p *ansiProperties) AnsiReset() string {
 
 func (p *ansiProperties) AnsiCode() string {
 	if p.fg == -1 && p.bg == -1 {
-		return "\033[0m"
+		return ""
 	}
 
 	fgBoldMod := 0
