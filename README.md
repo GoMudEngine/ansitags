@@ -32,6 +32,7 @@ Result:
 
 - Expand to [8 bit color](https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit) support
 - CSI sequence support such as cursor position
+- Support parsing streaming bytes vs entire string
 
 ## Future plans (Long term)
 
