@@ -1,7 +1,12 @@
 package ansigo
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +24,11 @@ const (
 	// special values to modify 8 bit color codes
 	fgToBgIncrement int = 10
 	boldIncrement   int = 60
+
+	tagTypeNone  uint8 = 0
+	tagTypeOpen  uint8 = 1
+	tagTypeClose uint8 = 2
+	tagTypeBoth  uint8 = 3
 )
 
 var (
@@ -52,7 +62,6 @@ type ansiProperties struct {
 
 func Parse(str string) string {
 
-	//var tabs string = ""
 	var sBuilder strings.Builder
 	var nestedDepth int = 0
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 2)
@@ -144,6 +153,191 @@ func Parse(str string) string {
 	return sBuilder.String()
 }
 
+func ParseStreaming(input *os.File, output *os.File) error {
+
+	var stackPosition int = 0
+	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 10)
+
+	inbound := bufio.NewReader(input)
+	outbound := bufio.NewWriter(output)
+	var sBuilder strings.Builder
+	var currentTagBuilder strings.Builder
+
+	/*
+		tagOpenStart  string = "<ansi"
+		tagOpenEnd    string = ">"
+		tagCloseStart string = "</ansi"
+		tagCloseEnd   string = ">"
+	*/
+
+	var tagPosition int = 0
+	var tagType uint8 = tagTypeNone
+
+	var tagOpenParts []rune = []rune(tagOpenStart)
+	var tagCloseParts []rune = []rune(tagCloseStart + tagCloseEnd)
+
+	for {
+		input, _, err := inbound.ReadRune()
+		if err != nil && err == io.EOF {
+			break
+		}
+
+		// if NOT in a sequence:
+		// 1.) Check whether the input is the next char in a sequence
+
+		// if IN a sequence:
+		// 1.) If current tag type is both, try and narrow down which one we are looking at
+		// 2.) Check wehther next char is in the sequence for the current tag type
+		// 3.) if not, reset everything.
+
+		// If not in the middle of a tag, or the tag hasn't been narrowed yet
+		if tagType == tagTypeNone || tagType == tagTypeBoth {
+
+			if input == tagOpenParts[tagPosition] && input == tagCloseParts[tagPosition] {
+				tagType = tagTypeBoth
+				currentTagBuilder.WriteRune(input)
+				tagPosition++
+				continue
+			}
+
+			if input == tagOpenParts[tagPosition] {
+				tagType = tagTypeOpen
+				currentTagBuilder.WriteRune(input)
+				tagPosition++
+				continue
+			}
+
+			if input == tagCloseParts[tagPosition] {
+				tagType = tagTypeClose
+				currentTagBuilder.WriteRune(input)
+				tagPosition++
+				continue
+			}
+
+			if tagType != tagTypeNone {
+				// We've failed to find a match, reset everything, write what we've got to the output
+				tagType = tagTypeNone
+				sBuilder.WriteString(currentTagBuilder.String())
+				currentTagBuilder.Reset()
+				tagPosition = 0
+			}
+
+		} else {
+
+			if tagType == tagTypeOpen {
+
+				// if still trying to reach the end...
+				if tagPosition < len(tagOpenParts) {
+
+					// if still tracking...
+					if input == tagOpenParts[tagPosition] {
+						currentTagBuilder.WriteRune(input)
+						tagPosition++
+						continue
+					} else {
+
+						// fell off. Reset it all.
+						tagType = tagTypeNone
+						sBuilder.WriteString(currentTagBuilder.String())
+						currentTagBuilder.Reset()
+						tagPosition = 0
+						continue
+					}
+
+				} else {
+
+					// If this is the final closing string of the open tag
+					if string(input) == tagOpenEnd {
+
+						currentTagBuilder.WriteRune(input)
+						tagStack = append(tagStack, extractProperties(currentTagBuilder.String()))
+						stackPosition++
+
+						fmt.Println(currentTagBuilder.String())
+						for _, v := range tagStack {
+							fmt.Println(*v)
+						}
+
+						currentTagBuilder.Reset()
+
+						sBuilder.WriteString(tagStack[stackPosition-1].AnsiCode())
+
+						tagType = tagTypeNone
+						tagPosition = 0
+
+						continue
+
+					} else {
+						currentTagBuilder.WriteRune(input)
+						continue
+					}
+
+				}
+
+			}
+
+			if tagType == tagTypeClose {
+
+				// if still trying to reach the end...
+				if tagPosition < len(tagCloseParts)-1 {
+
+					// if still tracking...
+					if input == tagCloseParts[tagPosition] {
+						currentTagBuilder.WriteRune(input)
+						tagPosition++
+						continue
+					} else {
+						// fell off. Reset it all.
+						tagType = tagTypeNone
+						sBuilder.WriteString(currentTagBuilder.String())
+						currentTagBuilder.Reset()
+						tagPosition = 0
+						continue
+					}
+
+				} else {
+					currentTagBuilder.Reset()
+
+					// we're already at the end, we can parse it.
+					if stackPosition > 1 {
+						sBuilder.WriteString(tagStack[stackPosition-2].AnsiCode())
+					} else {
+						sBuilder.WriteString(tagStack[0].AnsiReset())
+					}
+
+					stackPosition--
+					tagType = tagTypeNone
+					tagPosition = 0
+
+					continue
+				}
+
+			}
+
+		}
+
+		if tagType == tagTypeNone {
+			sBuilder.WriteRune(input)
+
+			if sBuilder.Len() >= 512 {
+
+				outbound.WriteString(sBuilder.String())
+				sBuilder.Reset()
+				outbound.Flush()
+			}
+		}
+	}
+
+	if sBuilder.Len() > 0 {
+		bytes, _ := json.Marshal(sBuilder.String())
+		fmt.Println(string(bytes))
+		outbound.WriteString(sBuilder.String())
+	}
+
+	outbound.Flush()
+	return nil
+}
+
 func extractParts(str string, strStart string, strEnd string) (matchData *tagMatch, err error) {
 
 	lPosStart := strings.Index(str, strStart)
@@ -201,7 +395,6 @@ func (p *ansiProperties) AnsiCode() string {
 }
 
 func extractProperties(tagStr string) *ansiProperties {
-
 	ret := &ansiProperties{fg: -1, bg: -1}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
@@ -238,5 +431,4 @@ func extractProperties(tagStr string) *ansiProperties {
 	}
 
 	return ret
-
 }

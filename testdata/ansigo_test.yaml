@@ -49,3 +49,6 @@ Non boolean values:
 Invalid color strings:
     input: "<ansi fg=\"tomato\" bg=\"fish\">This is inside of ansi tags</ansi>"
     expected: "This is inside of ansi tags\x1b[0m"
+MY TEST:
+    input: "<ansi fg=red>Bingo... this <ansi fg=yellow bg=green>should</ansi> be red.</ansi>"
+    expected: "\u001b[31mBingo... this \u001b[33;42mshould\u001b[31m be red.\u001b[0m"

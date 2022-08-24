@@ -52,6 +52,7 @@ func loadTestFile(filename string) map[string]TestCase {
 }
 
 //
+// Benchmarks
 // cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
 //
 
@@ -79,6 +80,7 @@ func BenchmarkAtoI(b *testing.B) {
 // BenchmarkConcat
 // BenchmarkConcat-16                500000            168857 ns/op         1403048 B/op          2 allocs/op
 //
+
 func BenchmarkConcat(b *testing.B) {
 	var sConcat string = ""
 	for n := 0; n < b.N; n++ {

@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/Volte6/ansigo"
 )
@@ -26,17 +23,8 @@ func main() {
 		return
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-	var sBuilder strings.Builder
-
-	for {
-		input, _, err := reader.ReadRune()
-		if err != nil && err == io.EOF {
-			break
-		}
-		sBuilder.WriteRune(input)
+	if err := ansigo.ParseStreaming(os.Stdin, os.Stdout); err != nil {
+		panic(err)
 	}
-
-	fmt.Print(ansigo.Parse(sBuilder.String()))
 
 }
