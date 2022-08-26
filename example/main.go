@@ -3,9 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/Volte6/ansigo"
 )
@@ -23,20 +21,15 @@ func main() {
 		fmt.Printf("\n%s %s\n\n",
 			ansigo.Parse("<ansi fg=red bold=true>Usage:</ansi>"),
 			"echo \"<ansi fg=red>Bingo</ansi>\" | "+os.Args[0])
+
 		return
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-	var sBuilder strings.Builder
+	input := bufio.NewReader(os.Stdin)
+	output := bufio.NewWriter(os.Stdout)
 
-	for {
-		input, _, err := reader.ReadRune()
-		if err != nil && err == io.EOF {
-			break
-		}
-		sBuilder.WriteRune(input)
+	if err := ansigo.ParseStreaming(input, output); err != nil {
+		panic(err)
 	}
-
-	fmt.Print(ansigo.Parse(sBuilder.String()))
 
 }

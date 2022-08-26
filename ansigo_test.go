@@ -1,9 +1,9 @@
 package ansigo
 
 import (
-	"fmt"
+	"bufio"
+	"bytes"
 	"io/ioutil"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -52,9 +52,10 @@ func loadTestFile(filename string) map[string]TestCase {
 }
 
 //
+// Benchmarks
 // cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
 //
-
+/*
 //
 // BenchmarkSprintf
 // BenchmarkSprintf-16               500000               114.7 ns/op             8 B/op          1 allocs/op
@@ -79,6 +80,7 @@ func BenchmarkAtoI(b *testing.B) {
 // BenchmarkConcat
 // BenchmarkConcat-16                500000            168857 ns/op         1403048 B/op          2 allocs/op
 //
+
 func BenchmarkConcat(b *testing.B) {
 	var sConcat string = ""
 	for n := 0; n < b.N; n++ {
@@ -110,5 +112,37 @@ func BenchmarkParseColorString(b *testing.B) {
 func BenchmarkParseColorInt(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		Parse("This is a prefix <ansi fg='9' bg='2'>This is color</ansi> This is a suffix")
+	}
+}
+*/
+// Name                       # Run      Avg Runtime       Bytes Allocated   # of Allocat
+// BenchmarkParseStreaming-16 34398	     32720 ns/op	   14958 B/op	     297 allocs/op
+func BenchmarkParseStreaming(b *testing.B) {
+
+	testStr := "This is text"
+	for i := 0; i < 20; i++ {
+		testStr = "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
+	}
+
+	reader := strings.NewReader(testStr)
+	input := bufio.NewReader(reader)
+	var outputBuffer bytes.Buffer
+	output := bufio.NewWriter(&outputBuffer)
+
+	for n := 0; n < b.N; n++ {
+		ParseStreaming(input, output)
+		reader.Reset(testStr)
+	}
+}
+
+// BenchmarkParseNew-16    	   33194	     35641 ns/op	   23330 B/op	     304 allocs/op
+func BenchmarkParse(b *testing.B) {
+
+	testStr := "This is text"
+	for i := 0; i < 20; i++ {
+		testStr = "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
+	}
+	for n := 0; n < b.N; n++ {
+		Parse(testStr)
 	}
 }
