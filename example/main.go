@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 
@@ -20,10 +21,14 @@ func main() {
 		fmt.Printf("\n%s %s\n\n",
 			ansigo.Parse("<ansi fg=red bold=true>Usage:</ansi>"),
 			"echo \"<ansi fg=red>Bingo</ansi>\" | "+os.Args[0])
+
 		return
 	}
 
-	if err := ansigo.ParseStreaming(os.Stdin, os.Stdout); err != nil {
+	input := bufio.NewReader(os.Stdin)
+	output := bufio.NewWriter(os.Stdout)
+
+	if err := ansigo.ParseStreaming(input, output); err != nil {
 		panic(err)
 	}
 

@@ -2,11 +2,9 @@ package ansigo
 
 import (
 	"bufio"
-	"encoding/json"
+	"bytes"
 	"errors"
-	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,6 +27,9 @@ const (
 	tagTypeOpen  uint8 = 1
 	tagTypeClose uint8 = 2
 	tagTypeBoth  uint8 = 3
+
+	defaultFg int = 39
+	defaultBg int = 49
 )
 
 var (
@@ -62,124 +63,45 @@ type ansiProperties struct {
 
 func Parse(str string) string {
 
-	var sBuilder strings.Builder
-	var nestedDepth int = 0
-	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 2)
-	var nextTag *tagMatch = nil
-	var isCloseTag bool = false
-	var closeTagFullLength int = len(tagCloseStart + tagCloseEnd)
+	input := bufio.NewReader(strings.NewReader(str))
 
-	for {
-		isCloseTag = false
-		nextOpenTag, _ := extractParts(str, tagOpenStart, tagOpenEnd)
-		nextCloseTag, _ := extractParts(str, tagCloseStart, tagCloseEnd)
-
-		if nextCloseTag != nil && nextCloseTag.endPos-nextCloseTag.startPos != closeTagFullLength {
-			nextCloseTag = nil
-		}
-
-		if nextOpenTag != nil {
-			if nextCloseTag != nil {
-
-				// Make sure the closing tag doesn't start before the end of the open tag
-				// If it does, the open tag is invalid and we must use the close tag
-				if nextCloseTag.startPos < nextOpenTag.endPos {
-
-					nextOpenTag = nil
-					nextTag = nextCloseTag
-					isCloseTag = true
-
-				} else {
-
-					// if the next open tag starts before the next closing tag, use it
-					if nextOpenTag.startPos < nextCloseTag.startPos {
-						nextTag = nextOpenTag
-					}
-				}
-
-			} else {
-				nextTag = nextOpenTag
-			}
-		} else if nextCloseTag != nil {
-			nextTag = nextCloseTag
-			isCloseTag = true
-		} else {
-			// no tags, only normal string remains
-			sBuilder.WriteString(str)
-			break
-		}
-
-		// if there was a straggler string to start, add that
-		if nextTag.startPos != 0 {
-			sBuilder.WriteString(str[:nextTag.startPos])
-		}
-
-		// open tag, extract it and
-		// add it to the end of the stack
-		tagStack = append(tagStack, extractProperties(str[nextTag.startPos:nextTag.endPos]))
-
-		// Write the ansi value of the most recent tag extraction
-		if isCloseTag {
-
-			// un-nest by 1
-			if nestedDepth > 0 {
-				nestedDepth--
-			}
-
-			if nestedDepth > 0 {
-				sBuilder.WriteString(tagStack[nestedDepth-1].AnsiCode())
-			} else {
-				sBuilder.WriteString(tagStack[nestedDepth].AnsiReset())
-			}
-
-		} else {
-
-			sBuilder.WriteString(tagStack[len(tagStack)-1].AnsiCode())
-			// Now we are nested
-			nestedDepth++
-
-		}
-
-		// text remaining (inside) becomes new str
-		str = str[nextTag.endPos:]
-
+	var outputBuffer bytes.Buffer
+	output := bufio.NewWriter(&outputBuffer)
+	if err := ParseStreaming(input, output); err != nil {
+		panic(err)
 	}
 
-	// if an ending tag was forgotten, reset all ansi color
-	if nestedDepth > 0 {
-		sBuilder.WriteString(tagStack[nestedDepth-1].AnsiReset())
-	}
-
-	return sBuilder.String()
+	return outputBuffer.String()
 }
 
-func ParseStreaming(input *os.File, output *os.File) error {
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error {
 
-	var stackPosition int = 0
-	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 10)
+	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
 
-	inbound := bufio.NewReader(input)
-	outbound := bufio.NewWriter(output)
 	var sBuilder strings.Builder
 	var currentTagBuilder strings.Builder
-
-	/*
-		tagOpenStart  string = "<ansi"
-		tagOpenEnd    string = ">"
-		tagCloseStart string = "</ansi"
-		tagCloseEnd   string = ">"
-	*/
-
 	var tagPosition int = 0
 	var tagType uint8 = tagTypeNone
 
-	var tagOpenParts []rune = []rune(tagOpenStart)
-	var tagCloseParts []rune = []rune(tagCloseStart + tagCloseEnd)
+	var tagOpenParts []byte = []byte(tagOpenStart)
+	var tagCloseParts []byte = []byte(tagCloseStart + tagCloseEnd)
+	var tagStartChar byte = tagOpenParts[0]
 
 	for {
-		input, _, err := inbound.ReadRune()
+		input, err := inbound.ReadByte()
 		if err != nil && err == io.EOF {
 			break
+		}
+
+		if sBuilder.Len() >= 128 {
+			outbound.WriteString(sBuilder.String())
+			sBuilder.Reset()
+			outbound.Flush()
+		}
+
+		if tagType == tagTypeNone && tagPosition == 0 && input != tagStartChar {
+			sBuilder.WriteByte(input)
+			continue
 		}
 
 		// if NOT in a sequence:
@@ -189,27 +111,26 @@ func ParseStreaming(input *os.File, output *os.File) error {
 		// 1.) If current tag type is both, try and narrow down which one we are looking at
 		// 2.) Check wehther next char is in the sequence for the current tag type
 		// 3.) if not, reset everything.
-
+		//fmt.Print(string(input))
 		// If not in the middle of a tag, or the tag hasn't been narrowed yet
 		if tagType == tagTypeNone || tagType == tagTypeBoth {
 
-			if input == tagOpenParts[tagPosition] && input == tagCloseParts[tagPosition] {
-				tagType = tagTypeBoth
-				currentTagBuilder.WriteRune(input)
-				tagPosition++
-				continue
-			}
-
 			if input == tagOpenParts[tagPosition] {
-				tagType = tagTypeOpen
-				currentTagBuilder.WriteRune(input)
+
+				if input == tagCloseParts[tagPosition] {
+					tagType = tagTypeBoth
+				} else {
+					tagType = tagTypeOpen
+				}
+
+				currentTagBuilder.WriteByte(input)
 				tagPosition++
 				continue
 			}
 
 			if input == tagCloseParts[tagPosition] {
 				tagType = tagTypeClose
-				currentTagBuilder.WriteRune(input)
+				currentTagBuilder.WriteByte(input)
 				tagPosition++
 				continue
 			}
@@ -217,10 +138,14 @@ func ParseStreaming(input *os.File, output *os.File) error {
 			if tagType != tagTypeNone {
 				// We've failed to find a match, reset everything, write what we've got to the output
 				tagType = tagTypeNone
+				currentTagBuilder.WriteByte(input)
 				sBuilder.WriteString(currentTagBuilder.String())
 				currentTagBuilder.Reset()
 				tagPosition = 0
+				continue
 			}
+
+			sBuilder.WriteByte(input)
 
 		} else {
 
@@ -231,7 +156,7 @@ func ParseStreaming(input *os.File, output *os.File) error {
 
 					// if still tracking...
 					if input == tagOpenParts[tagPosition] {
-						currentTagBuilder.WriteRune(input)
+						currentTagBuilder.WriteByte(input)
 						tagPosition++
 						continue
 					} else {
@@ -249,18 +174,21 @@ func ParseStreaming(input *os.File, output *os.File) error {
 					// If this is the final closing string of the open tag
 					if string(input) == tagOpenEnd {
 
-						currentTagBuilder.WriteRune(input)
-						tagStack = append(tagStack, extractProperties(currentTagBuilder.String()))
-						stackPosition++
+						currentTagBuilder.WriteByte(input)
 
-						fmt.Println(currentTagBuilder.String())
-						for _, v := range tagStack {
-							fmt.Println(*v)
-						}
+						newTag := extractProperties(currentTagBuilder.String())
+
+						stackLen := len(tagStack)
 
 						currentTagBuilder.Reset()
 
-						sBuilder.WriteString(tagStack[stackPosition-1].AnsiCode())
+						if stackLen > 0 {
+							sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+						} else {
+							sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
+						}
+
+						tagStack = append(tagStack, newTag)
 
 						tagType = tagTypeNone
 						tagPosition = 0
@@ -268,7 +196,7 @@ func ParseStreaming(input *os.File, output *os.File) error {
 						continue
 
 					} else {
-						currentTagBuilder.WriteRune(input)
+						currentTagBuilder.WriteByte(input)
 						continue
 					}
 
@@ -283,7 +211,7 @@ func ParseStreaming(input *os.File, output *os.File) error {
 
 					// if still tracking...
 					if input == tagCloseParts[tagPosition] {
-						currentTagBuilder.WriteRune(input)
+						currentTagBuilder.WriteByte(input)
 						tagPosition++
 						continue
 					} else {
@@ -299,13 +227,21 @@ func ParseStreaming(input *os.File, output *os.File) error {
 					currentTagBuilder.Reset()
 
 					// we're already at the end, we can parse it.
-					if stackPosition > 1 {
-						sBuilder.WriteString(tagStack[stackPosition-2].AnsiCode())
+					stackLen := len(tagStack)
+
+					if stackLen > 2 {
+						sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+					} else if stackLen > 1 {
+						sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
 					} else {
-						sBuilder.WriteString(tagStack[0].AnsiReset())
+						sBuilder.WriteString(AnsiResetAll())
 					}
 
-					stackPosition--
+					if stackLen > 0 {
+						tagStack[len(tagStack)-1] = nil
+						tagStack = tagStack[0 : len(tagStack)-1]
+					}
+
 					tagType = tagTypeNone
 					tagPosition = 0
 
@@ -316,86 +252,80 @@ func ParseStreaming(input *os.File, output *os.File) error {
 
 		}
 
-		if tagType == tagTypeNone {
-			sBuilder.WriteRune(input)
+	}
 
-			if sBuilder.Len() >= 512 {
+	if currentTagBuilder.Len() > 0 {
+		sBuilder.WriteString(currentTagBuilder.String())
+		currentTagBuilder.Reset()
+	}
 
-				outbound.WriteString(sBuilder.String())
-				sBuilder.Reset()
-				outbound.Flush()
-			}
-		}
+	// if there were any unclosed tags in the stream
+	if len(tagStack) > 0 {
+		sBuilder.WriteString(AnsiResetAll())
 	}
 
 	if sBuilder.Len() > 0 {
-		bytes, _ := json.Marshal(sBuilder.String())
-		fmt.Println(string(bytes))
+
 		outbound.WriteString(sBuilder.String())
+
 	}
 
 	outbound.Flush()
 	return nil
 }
 
-func extractParts(str string, strStart string, strEnd string) (matchData *tagMatch, err error) {
-
-	lPosStart := strings.Index(str, strStart)
-	strStartLen := len(strStart)
-
-	if lPosStart == -1 {
-		return nil, errTagsNotFound
-	}
-
-	lPosEnd := strings.Index(str[lPosStart+strStartLen:], strEnd)
-
-	if lPosEnd == -1 {
-		return nil, errTagsNotFound
-	}
-
-	return &tagMatch{
-			startPos: lPosStart,
-			endPos:   lPosEnd + lPosStart + strStartLen + 1,
-		},
-		nil
+func (p *ansiProperties) AnsiReset() string {
+	return "\033[39;49m"
 }
 
-func (p *ansiProperties) AnsiReset() string {
+func (p ansiProperties) AnsiCode() string {
+
+	if p.bold {
+		if p.fg < 90 && p.fg != defaultFg {
+			p.fg += boldIncrement
+		}
+		if p.bg < 90 && p.fg != defaultBg {
+			p.bg += boldIncrement
+		}
+	}
+
+	return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"
+
+}
+
+func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
+
+	if previous != nil {
+		if p.fg == defaultFg {
+			p.fg = previous.fg
+		}
+		if p.bg == defaultBg {
+			p.bg = previous.bg
+		}
+		if !p.bold {
+			p.bold = previous.bold
+		}
+	}
+
+	if p.bold {
+		if p.fg < 90 && p.fg != defaultFg {
+			p.fg += boldIncrement
+		}
+		if p.bg < 90 && p.fg != defaultBg {
+			p.bg += boldIncrement
+		}
+	}
+
+	return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"
+
+}
+
+func AnsiResetAll() string {
 	return "\033[0m"
 }
 
-func (p *ansiProperties) AnsiCode() string {
-	if p.fg == -1 && p.bg == -1 {
-		return ""
-	}
-
-	fgBoldMod := 0
-	bgBoldMod := 0
-
-	if p.bold {
-		if p.fg < 90 {
-			fgBoldMod = boldIncrement
-		}
-		if p.bg < 90 {
-			bgBoldMod = boldIncrement
-		}
-	}
-
-	if p.fg != -1 {
-		if p.bg != -1 {
-			// fg and bg
-			return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + ";" + strconv.Itoa(p.bg+bgBoldMod) + "m"
-		}
-		// only fg
-		return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + "m"
-	}
-
-	// only bg
-	return "\033[" + strconv.Itoa(p.bg+bgBoldMod) + "m"
-}
-
 func extractProperties(tagStr string) *ansiProperties {
-	ret := &ansiProperties{fg: -1, bg: -1}
+	ret := &ansiProperties{fg: defaultFg, bg: defaultBg}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
@@ -408,7 +338,7 @@ func extractProperties(tagStr string) *ansiProperties {
 				if val, ok := colorMap[val[matchPosValue]]; ok {
 					ret.fg = val
 				} else {
-					ret.fg = -1
+					ret.fg = defaultFg //-1
 				}
 			}
 		case "bg":
@@ -418,7 +348,7 @@ func extractProperties(tagStr string) *ansiProperties {
 					// increment value to make it a bg value
 					ret.bg = val + fgToBgIncrement
 				} else {
-					ret.bg = -1
+					ret.bg = defaultBg //-1
 				}
 			}
 		case "bold":

@@ -24,3 +24,11 @@ view-coverage: coverage-html  # Opens/views coverage report in browser
 .PHONY: build
 build: 
 	CGO_ENABLED=0 go build -trimpath -a -o example/bin/$(BIN) ./example
+
+.PHONY: stream-test
+stream-test: build
+	cat testdata/ansigo_streaming_test.yaml | ./example/bin/$(BIN)
+
+.PHONY: profile
+profile:
+	go test -cpuprofile cpu.prof -memprofile mem.prof -bench .

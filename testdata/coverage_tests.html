@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/Volte6/ansigo/ansigo.go (100.0%)</option>
+				<option value="file0">github.com/Volte6/ansigo/ansigo.go (73.8%)</option>
 				
 				</select>
 			</div>
@@ -81,7 +81,10 @@
 		<pre class="file" id="file0" style="display: none">package ansigo
 
 import (
+        "bufio"
+        "bytes"
         "errors"
+        "io"
         "regexp"
         "strconv"
         "strings"
@@ -99,6 +102,14 @@ const (
         // special values to modify 8 bit color codes
         fgToBgIncrement int = 10
         boldIncrement   int = 60
+
+        tagTypeNone  uint8 = 0
+        tagTypeOpen  uint8 = 1
+        tagTypeClose uint8 = 2
+        tagTypeBoth  uint8 = 3
+
+        defaultFg int = 39
+        defaultBg int = 49
 )
 
 var (
@@ -130,185 +141,297 @@ type ansiProperties struct {
         bold bool
 }
 
-func Parse(str string) string <span class="cov6" title="16">{
+func Parse(str string) string <span class="cov4" title="16">{
 
-        //var tabs string = ""
+        input := bufio.NewReader(strings.NewReader(str))
+
+        var outputBuffer bytes.Buffer
+        output := bufio.NewWriter(&amp;outputBuffer)
+        if err := ParseStreaming(input, output); err != nil </span><span class="cov0" title="0">{
+                panic(err)</span>
+        }
+
+        <span class="cov4" title="16">return outputBuffer.String()</span>
+}
+
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error <span class="cov4" title="16">{
+
+        var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
+
         var sBuilder strings.Builder
-        var nestedDepth int = 0
-        var tagStack []*ansiProperties = make([]*ansiProperties, 0, 2)
-        var nextTag *tagMatch = nil
-        var isCloseTag bool = false
-        var closeTagFullLength int = len(tagCloseStart + tagCloseEnd)
+        var currentTagBuilder strings.Builder
+        var tagPosition int = 0
+        var tagType uint8 = tagTypeNone
 
-        for </span><span class="cov8" title="68">{
-                isCloseTag = false
-                nextOpenTag, _ := extractParts(str, tagOpenStart, tagOpenEnd)
-                nextCloseTag, _ := extractParts(str, tagCloseStart, tagCloseEnd)
+        var tagOpenParts []byte = []byte(tagOpenStart)
+        var tagCloseParts []byte = []byte(tagCloseStart + tagCloseEnd)
+        var tagStartChar byte = tagOpenParts[0]
 
-                if nextCloseTag != nil &amp;&amp; nextCloseTag.endPos-nextCloseTag.startPos != closeTagFullLength </span><span class="cov1" title="1">{
-                        nextCloseTag = nil
-                }</span>
-
-                <span class="cov8" title="68">if nextOpenTag != nil </span><span class="cov7" title="37">{
-                        if nextCloseTag != nil </span><span class="cov7" title="35">{
-
-                                // Make sure the closing tag doesn't start before the end of the open tag
-                                // If it does, the open tag is invalid and we must use the close tag
-                                if nextCloseTag.startPos &lt; nextOpenTag.endPos </span><span class="cov5" title="11">{
-
-                                        nextOpenTag = nil
-                                        nextTag = nextCloseTag
-                                        isCloseTag = true
-
-                                }</span> else<span class="cov6" title="24"> {
-
-                                        // if the next open tag starts before the next closing tag, use it
-                                        if nextOpenTag.startPos &lt; nextCloseTag.startPos </span><span class="cov6" title="24">{
-                                                nextTag = nextOpenTag
-                                        }</span>
-                                }
-
-                        } else<span class="cov2" title="2"> {
-                                nextTag = nextOpenTag
-                        }</span>
-                } else<span class="cov7" title="31"> if nextCloseTag != nil </span><span class="cov5" title="15">{
-                        nextTag = nextCloseTag
-                        isCloseTag = true
-                }</span> else<span class="cov6" title="16"> {
-                        // no tags, only normal string remains
-                        sBuilder.WriteString(str)
+        for </span><span class="cov10" title="1395">{
+                input, err := inbound.ReadByte()
+                if err != nil &amp;&amp; err == io.EOF </span><span class="cov4" title="16">{
                         break</span>
                 }
 
-                // if there was a straggler string to start, add that
-                <span class="cov8" title="52">if nextTag.startPos != 0 </span><span class="cov7" title="34">{
-                        sBuilder.WriteString(str[:nextTag.startPos])
+                <span class="cov9" title="1379">if sBuilder.Len() &gt;= 128 </span><span class="cov0" title="0">{
+                        outbound.WriteString(sBuilder.String())
+                        sBuilder.Reset()
+                        outbound.Flush()
                 }</span>
 
-                // open tag, extract it and
-                // add it to the end of the stack
-                <span class="cov8" title="52">tagStack = append(tagStack, extractProperties(str[nextTag.startPos:nextTag.endPos]))
+                <span class="cov9" title="1379">if tagType == tagTypeNone &amp;&amp; tagPosition == 0 &amp;&amp; input != tagStartChar </span><span class="cov8" title="434">{
+                        sBuilder.WriteByte(input)
+                        continue</span>
+                }
 
-                // Write the ansi value of the most recent tag extraction
-                if isCloseTag </span><span class="cov6" title="26">{
+                // if NOT in a sequence:
+                // 1.) Check whether the input is the next char in a sequence
 
-                        // un-nest by 1
-                        if nestedDepth &gt; 0 </span><span class="cov6" title="24">{
-                                nestedDepth--
-                        }</span>
+                // if IN a sequence:
+                // 1.) If current tag type is both, try and narrow down which one we are looking at
+                // 2.) Check wehther next char is in the sequence for the current tag type
+                // 3.) if not, reset everything.
+                //fmt.Print(string(input))
+                // If not in the middle of a tag, or the tag hasn't been narrowed yet
+                <span class="cov9" title="945">if tagType == tagTypeNone || tagType == tagTypeBoth </span><span class="cov6" title="106">{
 
-                        <span class="cov6" title="26">if nestedDepth &gt; 0 </span><span class="cov3" title="4">{
-                                sBuilder.WriteString(tagStack[nestedDepth-1].AnsiCode())
-                        }</span> else<span class="cov6" title="22"> {
-                                sBuilder.WriteString(tagStack[nestedDepth].AnsiReset())
-                        }</span>
+                        if input == tagOpenParts[tagPosition] </span><span class="cov6" title="81">{
 
-                } else<span class="cov6" title="26"> {
+                                if input == tagCloseParts[tagPosition] </span><span class="cov5" title="53">{
+                                        tagType = tagTypeBoth
+                                }</span> else<span class="cov5" title="28"> {
+                                        tagType = tagTypeOpen
+                                }</span>
 
-                        sBuilder.WriteString(tagStack[len(tagStack)-1].AnsiCode())
-                        // Now we are nested
-                        nestedDepth++
+                                <span class="cov6" title="81">currentTagBuilder.WriteByte(input)
+                                tagPosition++
+                                continue</span>
+                        }
 
-                }</span>
+                        <span class="cov5" title="25">if input == tagCloseParts[tagPosition] </span><span class="cov5" title="25">{
+                                tagType = tagTypeClose
+                                currentTagBuilder.WriteByte(input)
+                                tagPosition++
+                                continue</span>
+                        }
 
-                // text remaining (inside) becomes new str
-                <span class="cov8" title="52">str = str[nextTag.endPos:]</span>
+                        <span class="cov0" title="0">if tagType != tagTypeNone </span><span class="cov0" title="0">{
+                                // We've failed to find a match, reset everything, write what we've got to the output
+                                tagType = tagTypeNone
+                                currentTagBuilder.WriteByte(input)
+                                sBuilder.WriteString(currentTagBuilder.String())
+                                currentTagBuilder.Reset()
+                                tagPosition = 0
+                                continue</span>
+                        }
+
+                        <span class="cov0" title="0">sBuilder.WriteByte(input)</span>
+
+                } else<span class="cov9" title="839"> {
+
+                        if tagType == tagTypeOpen </span><span class="cov9" title="714">{
+
+                                // if still trying to reach the end...
+                                if tagPosition &lt; len(tagOpenParts) </span><span class="cov6" title="84">{
+
+                                        // if still tracking...
+                                        if input == tagOpenParts[tagPosition] </span><span class="cov6" title="84">{
+                                                currentTagBuilder.WriteByte(input)
+                                                tagPosition++
+                                                continue</span>
+                                        } else<span class="cov0" title="0"> {
+
+                                                // fell off. Reset it all.
+                                                tagType = tagTypeNone
+                                                sBuilder.WriteString(currentTagBuilder.String())
+                                                currentTagBuilder.Reset()
+                                                tagPosition = 0
+                                                continue</span>
+                                        }
+
+                                } else<span class="cov9" title="630"> {
+
+                                        // If this is the final closing string of the open tag
+                                        if string(input) == tagOpenEnd </span><span class="cov5" title="27">{
+
+                                                currentTagBuilder.WriteByte(input)
+
+                                                newTag := extractProperties(currentTagBuilder.String())
+
+                                                stackLen := len(tagStack)
+
+                                                currentTagBuilder.Reset()
+
+                                                if stackLen &gt; 0 </span><span class="cov2" title="4">{
+                                                        sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+                                                }</span> else<span class="cov4" title="23"> {
+                                                        sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
+                                                }</span>
+
+                                                <span class="cov5" title="27">tagStack = append(tagStack, newTag)
+
+                                                tagType = tagTypeNone
+                                                tagPosition = 0
+
+                                                continue</span>
+
+                                        } else<span class="cov8" title="603"> {
+                                                currentTagBuilder.WriteByte(input)
+                                                continue</span>
+                                        }
+
+                                }
+
+                        }
+
+                        <span class="cov7" title="125">if tagType == tagTypeClose </span><span class="cov7" title="125">{
+
+                                // if still trying to reach the end...
+                                if tagPosition &lt; len(tagCloseParts)-1 </span><span class="cov6" title="100">{
+
+                                        // if still tracking...
+                                        if input == tagCloseParts[tagPosition] </span><span class="cov6" title="100">{
+                                                currentTagBuilder.WriteByte(input)
+                                                tagPosition++
+                                                continue</span>
+                                        } else<span class="cov0" title="0"> {
+                                                // fell off. Reset it all.
+                                                tagType = tagTypeNone
+                                                sBuilder.WriteString(currentTagBuilder.String())
+                                                currentTagBuilder.Reset()
+                                                tagPosition = 0
+                                                continue</span>
+                                        }
+
+                                } else<span class="cov5" title="25"> {
+                                        currentTagBuilder.Reset()
+
+                                        // we're already at the end, we can parse it.
+                                        stackLen := len(tagStack)
+
+                                        if stackLen &gt; 2 </span><span class="cov1" title="2">{
+                                                sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+                                        }</span> else<span class="cov4" title="23"> if stackLen &gt; 1 </span><span class="cov1" title="2">{
+                                                sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+                                        }</span> else<span class="cov4" title="21"> {
+                                                sBuilder.WriteString(AnsiResetAll())
+                                        }</span>
+
+                                        <span class="cov5" title="25">if stackLen &gt; 0 </span><span class="cov4" title="24">{
+                                                tagStack[len(tagStack)-1] = nil
+                                                tagStack = tagStack[0 : len(tagStack)-1]
+                                        }</span>
+
+                                        <span class="cov5" title="25">tagType = tagTypeNone
+                                        tagPosition = 0
+
+                                        continue</span>
+                                }
+
+                        }
+
+                }
 
         }
 
-        // if an ending tag was forgotten, reset all ansi color
-        <span class="cov6" title="16">if nestedDepth &gt; 0 </span><span class="cov2" title="2">{
-                sBuilder.WriteString(tagStack[nestedDepth-1].AnsiReset())
+        <span class="cov4" title="16">if currentTagBuilder.Len() &gt; 0 </span><span class="cov1" title="1">{
+                sBuilder.WriteString(currentTagBuilder.String())
+                currentTagBuilder.Reset()
         }</span>
 
-        <span class="cov6" title="16">return sBuilder.String()</span>
+        // if there were any unclosed tags in the stream
+        <span class="cov4" title="16">if len(tagStack) &gt; 0 </span><span class="cov2" title="3">{
+                sBuilder.WriteString(AnsiResetAll())
+        }</span>
+
+        <span class="cov4" title="16">if sBuilder.Len() &gt; 0 </span><span class="cov4" title="16">{
+
+                outbound.WriteString(sBuilder.String())
+
+        }</span>
+
+        <span class="cov4" title="16">outbound.Flush()
+        return nil</span>
 }
 
-func extractParts(str string, strStart string, strEnd string) (matchData *tagMatch, err error) <span class="cov10" title="136">{
+func (p *ansiProperties) AnsiReset() string <span class="cov0" title="0">{
+        return "\033[39;49m"
+}</span>
 
-        lPosStart := strings.Index(str, strStart)
-        strStartLen := len(strStart)
+func (p ansiProperties) AnsiCode() string <span class="cov0" title="0">{
 
-        if lPosStart == -1 </span><span class="cov8" title="47">{
-                return nil, errTagsNotFound
-        }</span>
+        if p.bold </span><span class="cov0" title="0">{
+                if p.fg &lt; 90 &amp;&amp; p.fg != defaultFg </span><span class="cov0" title="0">{
+                        p.fg += boldIncrement
+                }</span>
+                <span class="cov0" title="0">if p.bg &lt; 90 &amp;&amp; p.fg != defaultBg </span><span class="cov0" title="0">{
+                        p.bg += boldIncrement
+                }</span>
+        }
 
-        <span class="cov9" title="89">lPosEnd := strings.Index(str[lPosStart+strStartLen:], strEnd)
+        <span class="cov0" title="0">return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"</span>
 
-        if lPosEnd == -1 </span><span class="cov1" title="1">{
-                return nil, errTagsNotFound
-        }</span>
-
-        <span class="cov9" title="88">return &amp;tagMatch{
-                        startPos: lPosStart,
-                        endPos:   lPosEnd + lPosStart + strStartLen + 1,
-                },
-                nil</span>
 }
 
-func (p *ansiProperties) AnsiReset() string <span class="cov6" title="24">{
+func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string <span class="cov5" title="31">{
+
+        if previous != nil </span><span class="cov3" title="6">{
+                if p.fg == defaultFg </span><span class="cov0" title="0">{
+                        p.fg = previous.fg
+                }</span>
+                <span class="cov3" title="6">if p.bg == defaultBg </span><span class="cov0" title="0">{
+                        p.bg = previous.bg
+                }</span>
+                <span class="cov3" title="6">if !p.bold </span><span class="cov3" title="5">{
+                        p.bold = previous.bold
+                }</span>
+        }
+
+        <span class="cov5" title="31">if p.bold </span><span class="cov2" title="3">{
+                if p.fg &lt; 90 &amp;&amp; p.fg != defaultFg </span><span class="cov2" title="3">{
+                        p.fg += boldIncrement
+                }</span>
+                <span class="cov2" title="3">if p.bg &lt; 90 &amp;&amp; p.fg != defaultBg </span><span class="cov2" title="3">{
+                        p.bg += boldIncrement
+                }</span>
+        }
+
+        <span class="cov5" title="31">return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"</span>
+
+}
+
+func AnsiResetAll() string <span class="cov4" title="24">{
         return "\033[0m"
 }</span>
 
-func (p *ansiProperties) AnsiCode() string <span class="cov7" title="30">{
-        if p.fg == -1 &amp;&amp; p.bg == -1 </span><span class="cov3" title="3">{
-                return ""
-        }</span>
-
-        <span class="cov7" title="27">fgBoldMod := 0
-        bgBoldMod := 0
-
-        if p.bold </span><span class="cov3" title="3">{
-                if p.fg &lt; 90 </span><span class="cov3" title="3">{
-                        fgBoldMod = boldIncrement
-                }</span>
-                <span class="cov3" title="3">if p.bg &lt; 90 </span><span class="cov3" title="3">{
-                        bgBoldMod = boldIncrement
-                }</span>
-        }
-
-        <span class="cov7" title="27">if p.fg != -1 </span><span class="cov6" title="26">{
-                if p.bg != -1 </span><span class="cov6" title="22">{
-                        // fg and bg
-                        return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + ";" + strconv.Itoa(p.bg+bgBoldMod) + "m"
-                }</span>
-                // only fg
-                <span class="cov3" title="4">return "\033[" + strconv.Itoa(p.fg+fgBoldMod) + "m"</span>
-        }
-
-        // only bg
-        <span class="cov1" title="1">return "\033[" + strconv.Itoa(p.bg+bgBoldMod) + "m"</span>
-}
-
-func extractProperties(tagStr string) *ansiProperties <span class="cov8" title="52">{
-
-        ret := &amp;ansiProperties{fg: -1, bg: -1}
+func extractProperties(tagStr string) *ansiProperties <span class="cov5" title="27">{
+        ret := &amp;ansiProperties{fg: defaultFg, bg: defaultBg}
 
         result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
         var err error
-        for _, val := range result </span><span class="cov8" title="47">{
+        for _, val := range result </span><span class="cov5" title="48">{
 
                 switch val[matchPosTag] </span>{
-                case "fg":<span class="cov6" title="23">
-                        if ret.fg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov6" title="23">{
+                case "fg":<span class="cov4" title="24">
+                        if ret.fg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov4" title="24">{
                                 // if couldn't find a number, check for a mapped string
-                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov6" title="22">{
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov4" title="23">{
                                         ret.fg = val
                                 }</span> else<span class="cov1" title="1"> {
-                                        ret.fg = -1
+                                        ret.fg = defaultFg //-1
                                 }</span>
                         }
-                case "bg":<span class="cov6" title="20">
-                        if ret.bg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov6" title="19">{
+                case "bg":<span class="cov4" title="20">
+                        if ret.bg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov4" title="19">{
                                 // if couldn't find a number, check for a mapped string
-                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov6" title="18">{
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov4" title="18">{
                                         // increment value to make it a bg value
                                         ret.bg = val + fgToBgIncrement
                                 }</span> else<span class="cov1" title="1"> {
-                                        ret.bg = -1
+                                        ret.bg = defaultBg //-1
                                 }</span>
                         }
-                case "bold":<span class="cov3" title="4">
+                case "bold":<span class="cov2" title="4">
                         if ret.bold, err = strconv.ParseBool(val[matchPosValue]); err != nil </span><span class="cov1" title="1">{
                                 ret.bold = false
                         }</span>
@@ -317,8 +440,7 @@ func extractProperties(tagStr string) *ansiProperties <span class="cov8" title="
 
         }
 
-        <span class="cov8" title="52">return ret</span>
-
+        <span class="cov5" title="27">return ret</span>
 }
 </pre>
 		
