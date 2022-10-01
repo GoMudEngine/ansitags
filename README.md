@@ -10,8 +10,10 @@
 
 _ansigo_ is a helper library that allows to you use common tags inside of text that result in [ANSI escape code](https://en.wikipedia.org/wiki/ANSI_escape_code#Colors) (color). Currently only one directional parsing is possible ( *tagged strings* ⮕ *color escaped strings* )
 
-- [ansigo.go](ansigo.go) Contains the code and structs for the entire module, noteably [ansigo.Parse()](https://github.com/Volte6/ansigo/blob/master/ansigo.go#L53).
-- [ansigo_test.go](ansigo_test.go) Contains unit tests, benchmarks, etc
+- [ansigo.go](ansigo.go) Contains the code and structs for the basic parsing logic and flow of data, noteably `ansigo.Parse()` and `ansigo.ParseStreaming()`.
+- [ansiproperties.go](ansiproperties.go) handles basic ansi properties/tag parsing and conversion into valid escape codes.
+- - [ansiproperties.go](ansiproperties.go) basic helper struct to simplify finding ansi "tag" matches.
+- [tagmatcher.go](tagmatcher.go) Contains unit tests, benchmarks, etc
 - [testdata/ansigo_test.yaml](testdata/ansigo_test.yaml) Contains unit test data with input & expect output. The ANSI _Control Sequence Introducer_ should be represented by a unicode escaped value - `\u001b` (Octal `33`, Hexadecimal `1b`, Decimal `27`)
 
 ## Quick Start
