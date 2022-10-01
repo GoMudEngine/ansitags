@@ -47,7 +47,6 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
 
-	var sBuilder strings.Builder
 	var currentTagBuilder strings.Builder
 
 	openMatcher := NewTagMatcher(tagStart, []byte(tagOpen), tagEnd, true)
@@ -61,19 +60,13 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 			break
 		}
 
-		if sBuilder.Len() >= 256 {
-			outbound.WriteString(sBuilder.String())
-			sBuilder.Reset()
-			outbound.Flush()
-		}
-
 		// If not currently in any modes, look for any tags
 		if mode == parseModeNone {
 
 			if input != tagStart {
 				// If it's not an opening tag and we're looking for it (zero position)
 				// Write it to the output string and go to next
-				sBuilder.WriteByte(input)
+				outbound.WriteByte(input)
 				continue
 			}
 
@@ -101,9 +94,9 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 				stackLen := len(tagStack)
 
 				if stackLen > 0 {
-					sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+					outbound.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
 				} else {
-					sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
+					outbound.WriteString(newTag.PropagateAnsiCode(nil))
 				}
 
 				tagStack = append(tagStack, newTag)
@@ -131,11 +124,11 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 				stackLen := len(tagStack)
 
 				if stackLen > 2 {
-					sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+					outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
 				} else if stackLen > 1 {
-					sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+					outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
 				} else {
-					sBuilder.WriteString(AnsiResetAll())
+					outbound.WriteString(AnsiResetAll())
 				}
 
 				if stackLen > 0 {
@@ -155,7 +148,7 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 
 			// open and close both failed to match. Reset everything
 			mode = parseModeNone
-			sBuilder.WriteString(currentTagBuilder.String())
+			outbound.WriteString(currentTagBuilder.String())
 			currentTagBuilder.Reset()
 			continue
 		}
@@ -163,17 +156,13 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 	}
 
 	if currentTagBuilder.Len() > 0 {
-		sBuilder.WriteString(currentTagBuilder.String())
+		outbound.WriteString(currentTagBuilder.String())
 		currentTagBuilder.Reset()
 	}
 
 	// if there were any unclosed tags in the stream
 	if len(tagStack) > 0 {
-		sBuilder.WriteString(AnsiResetAll())
-	}
-
-	if sBuilder.Len() > 0 {
-		outbound.WriteString(sBuilder.String())
+		outbound.WriteString(AnsiResetAll())
 	}
 
 	outbound.Flush()
