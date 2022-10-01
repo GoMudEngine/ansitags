@@ -16,18 +16,6 @@ const (
 	tagOpen  string = "ansi"  // will be wrapped in tagStart and tagEnd
 	tagClose string = "/ansi" // will be wrapped in tagStart and tagEnd
 
-	// regex result data indices
-	matchPosFull  int = 0
-	matchPosTag   int = 1
-	matchPosValue int = 2
-
-	// special values to modify 8 bit color codes
-	fgToBgIncrement int = 10
-	boldIncrement   int = 60
-
-	defaultFg int = 39
-	defaultBg int = 49
-
 	parseModeNone     parseMode = 0
 	parseModeMatching parseMode = 1
 )
