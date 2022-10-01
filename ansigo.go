@@ -3,40 +3,41 @@ package ansigo
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"io"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
+type parseMode uint8
+
 const (
-	tagOpenStart  string = "<ansi"
-	tagOpenEnd    string = ">"
-	tagCloseStart string = "</ansi"
-	tagCloseEnd   string = ">"
+	tagStart byte = '<'
+	tagEnd   byte = '>'
+
+	tagOpen  string = "ansi"  // will be wrapped in tagStart and tagEnd
+	tagClose string = "/ansi" // will be wrapped in tagStart and tagEnd
+
 	// regex result data indices
 	matchPosFull  int = 0
 	matchPosTag   int = 1
 	matchPosValue int = 2
+
 	// special values to modify 8 bit color codes
 	fgToBgIncrement int = 10
 	boldIncrement   int = 60
 
-	tagTypeNone  uint8 = 0
-	tagTypeOpen  uint8 = 1
-	tagTypeClose uint8 = 2
-	tagTypeBoth  uint8 = 3
-
 	defaultFg int = 39
 	defaultBg int = 49
+
+	parseModeNone     parseMode = 0
+	parseModeMatching parseMode = 1
 )
 
 var (
-	// errors
-	errTagsNotFound error = errors.New("ansi tag not found")
 	// regular expressions
 	propertyRegex, _ = regexp.Compile(" (bg|fg|bold)=[\"']?([a-z0-9]+)[\"']?")
+
 	// map of strings to 4 bit color codes
 	colorMap map[string]int = map[string]int{
 		"black":   30,
@@ -67,25 +68,22 @@ func Parse(str string) string {
 
 	var outputBuffer bytes.Buffer
 	output := bufio.NewWriter(&outputBuffer)
-	if err := ParseStreaming(input, output); err != nil {
-		panic(err)
-	}
+	ParseStreaming(input, output)
 
 	return outputBuffer.String()
 }
 
-func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error {
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
 
 	var sBuilder strings.Builder
 	var currentTagBuilder strings.Builder
-	var tagPosition int = 0
-	var tagType uint8 = tagTypeNone
 
-	var tagOpenParts []byte = []byte(tagOpenStart)
-	var tagCloseParts []byte = []byte(tagCloseStart + tagCloseEnd)
-	var tagStartChar byte = tagOpenParts[0]
+	openMatcher := NewTagMatcher(tagStart, []byte(tagOpen), tagEnd, true)
+	closeMatcher := NewTagMatcher(tagStart, []byte(tagClose), tagEnd, false)
+
+	var mode parseMode = parseModeNone
 
 	for {
 		input, err := inbound.ReadByte()
@@ -93,163 +91,103 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error {
 			break
 		}
 
-		if sBuilder.Len() >= 128 {
+		if sBuilder.Len() >= 256 {
 			outbound.WriteString(sBuilder.String())
 			sBuilder.Reset()
 			outbound.Flush()
 		}
 
-		if tagType == tagTypeNone && tagPosition == 0 && input != tagStartChar {
-			sBuilder.WriteByte(input)
-			continue
+		// If not currently in any modes, look for any tags
+		if mode == parseModeNone {
+
+			if input != tagStart {
+				// If it's not an opening tag and we're looking for it (zero position)
+				// Write it to the output string and go to next
+				sBuilder.WriteByte(input)
+				continue
+			}
+
+			// Since the input is a starting tag, switch to a matching mode
+			mode = parseModeMatching
 		}
 
-		// if NOT in a sequence:
-		// 1.) Check whether the input is the next char in a sequence
+		// if attempting to match a tag
+		if mode == parseModeMatching {
 
-		// if IN a sequence:
-		// 1.) If current tag type is both, try and narrow down which one we are looking at
-		// 2.) Check wehther next char is in the sequence for the current tag type
-		// 3.) if not, reset everything.
-		//fmt.Print(string(input))
-		// If not in the middle of a tag, or the tag hasn't been narrowed yet
-		if tagType == tagTypeNone || tagType == tagTypeBoth {
+			openMatch, openMatchDone := openMatcher.MatchNext(input)
+			closeMatch, closeMatchDone := closeMatcher.MatchNext(input)
 
-			if input == tagOpenParts[tagPosition] {
+			if openMatch {
+				currentTagBuilder.WriteByte(input)
 
-				if input == tagCloseParts[tagPosition] {
-					tagType = tagTypeBoth
-				} else {
-					tagType = tagTypeOpen
+				if !openMatchDone {
+					continue
 				}
+				// If this is the final closing string of the open tag
 
-				currentTagBuilder.WriteByte(input)
-				tagPosition++
-				continue
-			}
-
-			if input == tagCloseParts[tagPosition] {
-				tagType = tagTypeClose
-				currentTagBuilder.WriteByte(input)
-				tagPosition++
-				continue
-			}
-
-			if tagType != tagTypeNone {
-				// We've failed to find a match, reset everything, write what we've got to the output
-				tagType = tagTypeNone
-				currentTagBuilder.WriteByte(input)
-				sBuilder.WriteString(currentTagBuilder.String())
+				newTag := extractProperties(currentTagBuilder.String())
 				currentTagBuilder.Reset()
-				tagPosition = 0
-				continue
-			}
 
-			sBuilder.WriteByte(input)
+				stackLen := len(tagStack)
 
-		} else {
-
-			if tagType == tagTypeOpen {
-
-				// if still trying to reach the end...
-				if tagPosition < len(tagOpenParts) {
-
-					// if still tracking...
-					if input == tagOpenParts[tagPosition] {
-						currentTagBuilder.WriteByte(input)
-						tagPosition++
-						continue
-					} else {
-
-						// fell off. Reset it all.
-						tagType = tagTypeNone
-						sBuilder.WriteString(currentTagBuilder.String())
-						currentTagBuilder.Reset()
-						tagPosition = 0
-						continue
-					}
-
+				if stackLen > 0 {
+					sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
 				} else {
-
-					// If this is the final closing string of the open tag
-					if string(input) == tagOpenEnd {
-
-						currentTagBuilder.WriteByte(input)
-
-						newTag := extractProperties(currentTagBuilder.String())
-
-						stackLen := len(tagStack)
-
-						currentTagBuilder.Reset()
-
-						if stackLen > 0 {
-							sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
-						} else {
-							sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
-						}
-
-						tagStack = append(tagStack, newTag)
-
-						tagType = tagTypeNone
-						tagPosition = 0
-
-						continue
-
-					} else {
-						currentTagBuilder.WriteByte(input)
-						continue
-					}
-
+					sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
 				}
 
+				tagStack = append(tagStack, newTag)
+
+				// reset matchers
+				mode = parseModeNone
+				openMatcher.Reset()
+				closeMatcher.Reset()
+				continue
+
 			}
+			// No open match was found. Reset the matcher
+			openMatcher.Reset()
 
-			if tagType == tagTypeClose {
+			if closeMatch {
 
-				// if still trying to reach the end...
-				if tagPosition < len(tagCloseParts)-1 {
+				currentTagBuilder.WriteByte(input)
 
-					// if still tracking...
-					if input == tagCloseParts[tagPosition] {
-						currentTagBuilder.WriteByte(input)
-						tagPosition++
-						continue
-					} else {
-						// fell off. Reset it all.
-						tagType = tagTypeNone
-						sBuilder.WriteString(currentTagBuilder.String())
-						currentTagBuilder.Reset()
-						tagPosition = 0
-						continue
-					}
-
-				} else {
-					currentTagBuilder.Reset()
-
-					// we're already at the end, we can parse it.
-					stackLen := len(tagStack)
-
-					if stackLen > 2 {
-						sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
-					} else if stackLen > 1 {
-						sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
-					} else {
-						sBuilder.WriteString(AnsiResetAll())
-					}
-
-					if stackLen > 0 {
-						tagStack[len(tagStack)-1] = nil
-						tagStack = tagStack[0 : len(tagStack)-1]
-					}
-
-					tagType = tagTypeNone
-					tagPosition = 0
-
+				if !closeMatchDone {
 					continue
 				}
 
-			}
+				currentTagBuilder.Reset()
+				// we're already at the end, we can parse it.
+				stackLen := len(tagStack)
 
+				if stackLen > 2 {
+					sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+				} else if stackLen > 1 {
+					sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+				} else {
+					sBuilder.WriteString(AnsiResetAll())
+				}
+
+				if stackLen > 0 {
+					tagStack[len(tagStack)-1] = nil
+					tagStack = tagStack[0 : len(tagStack)-1]
+				}
+
+				// reset matchers
+				mode = parseModeNone
+				openMatcher.Reset()
+				closeMatcher.Reset()
+				continue
+
+			}
+			// No close match was found. Reset the matcher
+			closeMatcher.Reset()
+
+			// open and close both failed to match. Reset everything
+			mode = parseModeNone
+			sBuilder.WriteString(currentTagBuilder.String())
+			currentTagBuilder.Reset()
+			continue
 		}
 
 	}
@@ -265,13 +203,85 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error {
 	}
 
 	if sBuilder.Len() > 0 {
-
 		outbound.WriteString(sBuilder.String())
-
 	}
 
 	outbound.Flush()
-	return nil
+}
+
+func NewTagMatcher(start byte, mid []byte, end byte, unknownLength bool) *tagMatcher {
+	t := tagMatcher{
+		startByte:  start,
+		midBytes:   mid,
+		endByte:    end,
+		exactMatch: !unknownLength,
+		totalSize:  uint8(len(mid) + 1), // total size without the end byte
+		position:   0,
+	}
+	return &t
+}
+
+type tagMatcher struct {
+	exactMatch bool // lets unknown bytes keep matching before the end character is found
+	totalSize  uint8
+	position   uint8
+	startByte  byte
+	endByte    byte
+	midBytes   []byte
+}
+
+func (t *tagMatcher) Seek(pos uint8) {
+	t.position = pos
+}
+
+func (t *tagMatcher) MatchNext(char byte) (matched bool, complete bool) {
+
+	if t.position == 0 {
+
+		// Look for starting byte
+		if char == t.startByte {
+			t.position++
+			// Still matching
+			return true, false
+		}
+		// Failed to match.
+		t.position = 0
+		return false, true
+	}
+
+	if t.position >= t.totalSize {
+
+		// Look for ending byte
+		if char == t.endByte {
+			t.position++
+			// Matched and done.
+			return true, true
+		}
+
+		if t.exactMatch {
+			// Failed to match and required exact
+			t.position = 0
+			return false, true
+		}
+
+		// allows more characters before finishing.
+		return true, false
+	}
+
+	// Look for mid bytes match
+	if char == t.midBytes[t.position-1] {
+		t.position++
+		// Still matching
+		return true, false
+	}
+
+	// Failed to match
+	t.position = 0
+	return false, true
+}
+
+func (t *tagMatcher) Reset() {
+	t.Seek(0)
 }
 
 func (p *ansiProperties) AnsiReset() string {
