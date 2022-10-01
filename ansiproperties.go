@@ -5,7 +5,22 @@ import (
 	"strconv"
 )
 
+const (
+	// regex result data indices
+	matchPosFull  int = 0
+	matchPosTag   int = 1
+	matchPosValue int = 2
+
+	// special values to modify 8 bit color codes
+	fgToBgIncrement int = 10
+	boldIncrement   int = 60
+
+	defaultFg int = 39
+	defaultBg int = 49
+)
+
 var (
+
 	// regular expressions
 	propertyRegex, _ = regexp.Compile(" (bg|fg|bold)=[\"']?([a-z0-9]+)[\"']?")
 
