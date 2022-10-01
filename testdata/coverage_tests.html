@@ -55,7 +55,11 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/Volte6/ansigo/ansigo.go (73.8%)</option>
+				<option value="file0">github.com/Volte6/ansigo/ansigo.go (100.0%)</option>
+				
+				<option value="file1">github.com/Volte6/ansigo/ansiproperties.go (96.8%)</option>
+				
+				<option value="file2">github.com/Volte6/ansigo/tagmatcher.go (100.0%)</option>
 				
 				</select>
 			</div>
@@ -83,40 +87,194 @@
 import (
         "bufio"
         "bytes"
-        "errors"
         "io"
-        "regexp"
-        "strconv"
         "strings"
 )
 
+type parseMode uint8
+
 const (
-        tagOpenStart  string = "&lt;ansi"
-        tagOpenEnd    string = "&gt;"
-        tagCloseStart string = "&lt;/ansi"
-        tagCloseEnd   string = "&gt;"
+        tagStart byte = '&lt;'
+        tagEnd   byte = '&gt;'
+
+        tagOpen  string = "ansi"  // will be wrapped in tagStart and tagEnd
+        tagClose string = "/ansi" // will be wrapped in tagStart and tagEnd
+
         // regex result data indices
         matchPosFull  int = 0
         matchPosTag   int = 1
         matchPosValue int = 2
+
         // special values to modify 8 bit color codes
         fgToBgIncrement int = 10
         boldIncrement   int = 60
 
-        tagTypeNone  uint8 = 0
-        tagTypeOpen  uint8 = 1
-        tagTypeClose uint8 = 2
-        tagTypeBoth  uint8 = 3
-
         defaultFg int = 39
         defaultBg int = 49
+
+        parseModeNone     parseMode = 0
+        parseModeMatching parseMode = 1
+)
+
+func Parse(str string) string <span class="cov3" title="18">{
+
+        input := bufio.NewReader(strings.NewReader(str))
+
+        var outputBuffer bytes.Buffer
+        output := bufio.NewWriter(&amp;outputBuffer)
+        ParseStreaming(input, output)
+
+        return outputBuffer.String()
+}</span>
+
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) <span class="cov3" title="18">{
+
+        var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
+
+        var sBuilder strings.Builder
+        var currentTagBuilder strings.Builder
+
+        openMatcher := NewTagMatcher(tagStart, []byte(tagOpen), tagEnd, true)
+        closeMatcher := NewTagMatcher(tagStart, []byte(tagClose), tagEnd, false)
+
+        var mode parseMode = parseModeNone
+
+        for </span><span class="cov10" title="18785">{
+                input, err := inbound.ReadByte()
+                if err != nil &amp;&amp; err == io.EOF </span><span class="cov3" title="18">{
+                        break</span>
+                }
+
+                <span class="cov9" title="18767">if sBuilder.Len() &gt;= 256 </span><span class="cov4" title="38">{
+                        outbound.WriteString(sBuilder.String())
+                        sBuilder.Reset()
+                        outbound.Flush()
+                }</span>
+
+                // If not currently in any modes, look for any tags
+                <span class="cov9" title="18767">if mode == parseModeNone </span><span class="cov8" title="4577">{
+
+                        if input != tagStart </span><span class="cov8" title="3682">{
+                                // If it's not an opening tag and we're looking for it (zero position)
+                                // Write it to the output string and go to next
+                                sBuilder.WriteByte(input)
+                                continue</span>
+                        }
+
+                        // Since the input is a starting tag, switch to a matching mode
+                        <span class="cov7" title="895">mode = parseModeMatching</span>
+                }
+
+                // if attempting to match a tag
+                <span class="cov9" title="15085">if mode == parseModeMatching </span><span class="cov9" title="15085">{
+
+                        openMatch, openMatchDone := openMatcher.MatchNext(input)
+                        closeMatch, closeMatchDone := closeMatcher.MatchNext(input)
+
+                        if openMatch </span><span class="cov9" title="12412">{
+                                currentTagBuilder.WriteByte(input)
+
+                                if !openMatchDone </span><span class="cov9" title="11964">{
+                                        continue</span>
+                                }
+                                // If this is the final closing string of the open tag
+
+                                <span class="cov6" title="448">newTag := extractProperties(currentTagBuilder.String())
+                                currentTagBuilder.Reset()
+
+                                stackLen := len(tagStack)
+
+                                if stackLen &gt; 0 </span><span class="cov6" title="405">{
+                                        sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+                                }</span> else<span class="cov4" title="43"> {
+                                        sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
+                                }</span>
+
+                                <span class="cov6" title="448">tagStack = append(tagStack, newTag)
+
+                                // reset matchers
+                                mode = parseModeNone
+                                openMatcher.Reset()
+                                closeMatcher.Reset()
+                                continue</span>
+
+                        }
+                        // No open match was found. Reset the matcher
+                        <span class="cov8" title="2673">openMatcher.Reset()
+
+                        if closeMatch </span><span class="cov8" title="2670">{
+
+                                currentTagBuilder.WriteByte(input)
+
+                                if !closeMatchDone </span><span class="cov8" title="2227">{
+                                        continue</span>
+                                }
+
+                                <span class="cov6" title="443">currentTagBuilder.Reset()
+                                // we're already at the end, we can parse it.
+                                stackLen := len(tagStack)
+
+                                if stackLen &gt; 2 </span><span class="cov6" title="299">{
+                                        sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+                                }</span> else<span class="cov5" title="144"> if stackLen &gt; 1 </span><span class="cov5" title="104">{
+                                        sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+                                }</span> else<span class="cov4" title="40"> {
+                                        sBuilder.WriteString(AnsiResetAll())
+                                }</span>
+
+                                <span class="cov6" title="443">if stackLen &gt; 0 </span><span class="cov6" title="442">{
+                                        tagStack[len(tagStack)-1] = nil
+                                        tagStack = tagStack[0 : len(tagStack)-1]
+                                }</span>
+
+                                // reset matchers
+                                <span class="cov6" title="443">mode = parseModeNone
+                                openMatcher.Reset()
+                                closeMatcher.Reset()
+                                continue</span>
+
+                        }
+                        // No close match was found. Reset the matcher
+                        <span class="cov2" title="3">closeMatcher.Reset()
+
+                        // open and close both failed to match. Reset everything
+                        mode = parseModeNone
+                        sBuilder.WriteString(currentTagBuilder.String())
+                        currentTagBuilder.Reset()
+                        continue</span>
+                }
+
+        }
+
+        <span class="cov3" title="18">if currentTagBuilder.Len() &gt; 0 </span><span class="cov1" title="1">{
+                sBuilder.WriteString(currentTagBuilder.String())
+                currentTagBuilder.Reset()
+        }</span>
+
+        // if there were any unclosed tags in the stream
+        <span class="cov3" title="18">if len(tagStack) &gt; 0 </span><span class="cov2" title="4">{
+                sBuilder.WriteString(AnsiResetAll())
+        }</span>
+
+        <span class="cov3" title="18">if sBuilder.Len() &gt; 0 </span><span class="cov3" title="18">{
+                outbound.WriteString(sBuilder.String())
+        }</span>
+
+        <span class="cov3" title="18">outbound.Flush()</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package ansigo
+
+import (
+        "regexp"
+        "strconv"
 )
 
 var (
-        // errors
-        errTagsNotFound error = errors.New("ansi tag not found")
         // regular expressions
         propertyRegex, _ = regexp.Compile(" (bg|fg|bold)=[\"']?([a-z0-9]+)[\"']?")
+
         // map of strings to 4 bit color codes
         colorMap map[string]int = map[string]int{
                 "black":   30,
@@ -130,308 +288,75 @@ var (
         }
 )
 
-type tagMatch struct {
-        startPos int
-        endPos   int
-}
-
 type ansiProperties struct {
         fg   int
         bg   int
         bold bool
 }
 
-func Parse(str string) string <span class="cov4" title="16">{
-
-        input := bufio.NewReader(strings.NewReader(str))
-
-        var outputBuffer bytes.Buffer
-        output := bufio.NewWriter(&amp;outputBuffer)
-        if err := ParseStreaming(input, output); err != nil </span><span class="cov0" title="0">{
-                panic(err)</span>
-        }
-
-        <span class="cov4" title="16">return outputBuffer.String()</span>
-}
-
-func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) error <span class="cov4" title="16">{
-
-        var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
-
-        var sBuilder strings.Builder
-        var currentTagBuilder strings.Builder
-        var tagPosition int = 0
-        var tagType uint8 = tagTypeNone
-
-        var tagOpenParts []byte = []byte(tagOpenStart)
-        var tagCloseParts []byte = []byte(tagCloseStart + tagCloseEnd)
-        var tagStartChar byte = tagOpenParts[0]
-
-        for </span><span class="cov10" title="1395">{
-                input, err := inbound.ReadByte()
-                if err != nil &amp;&amp; err == io.EOF </span><span class="cov4" title="16">{
-                        break</span>
-                }
-
-                <span class="cov9" title="1379">if sBuilder.Len() &gt;= 128 </span><span class="cov0" title="0">{
-                        outbound.WriteString(sBuilder.String())
-                        sBuilder.Reset()
-                        outbound.Flush()
-                }</span>
-
-                <span class="cov9" title="1379">if tagType == tagTypeNone &amp;&amp; tagPosition == 0 &amp;&amp; input != tagStartChar </span><span class="cov8" title="434">{
-                        sBuilder.WriteByte(input)
-                        continue</span>
-                }
-
-                // if NOT in a sequence:
-                // 1.) Check whether the input is the next char in a sequence
-
-                // if IN a sequence:
-                // 1.) If current tag type is both, try and narrow down which one we are looking at
-                // 2.) Check wehther next char is in the sequence for the current tag type
-                // 3.) if not, reset everything.
-                //fmt.Print(string(input))
-                // If not in the middle of a tag, or the tag hasn't been narrowed yet
-                <span class="cov9" title="945">if tagType == tagTypeNone || tagType == tagTypeBoth </span><span class="cov6" title="106">{
-
-                        if input == tagOpenParts[tagPosition] </span><span class="cov6" title="81">{
-
-                                if input == tagCloseParts[tagPosition] </span><span class="cov5" title="53">{
-                                        tagType = tagTypeBoth
-                                }</span> else<span class="cov5" title="28"> {
-                                        tagType = tagTypeOpen
-                                }</span>
-
-                                <span class="cov6" title="81">currentTagBuilder.WriteByte(input)
-                                tagPosition++
-                                continue</span>
-                        }
-
-                        <span class="cov5" title="25">if input == tagCloseParts[tagPosition] </span><span class="cov5" title="25">{
-                                tagType = tagTypeClose
-                                currentTagBuilder.WriteByte(input)
-                                tagPosition++
-                                continue</span>
-                        }
-
-                        <span class="cov0" title="0">if tagType != tagTypeNone </span><span class="cov0" title="0">{
-                                // We've failed to find a match, reset everything, write what we've got to the output
-                                tagType = tagTypeNone
-                                currentTagBuilder.WriteByte(input)
-                                sBuilder.WriteString(currentTagBuilder.String())
-                                currentTagBuilder.Reset()
-                                tagPosition = 0
-                                continue</span>
-                        }
-
-                        <span class="cov0" title="0">sBuilder.WriteByte(input)</span>
-
-                } else<span class="cov9" title="839"> {
-
-                        if tagType == tagTypeOpen </span><span class="cov9" title="714">{
-
-                                // if still trying to reach the end...
-                                if tagPosition &lt; len(tagOpenParts) </span><span class="cov6" title="84">{
-
-                                        // if still tracking...
-                                        if input == tagOpenParts[tagPosition] </span><span class="cov6" title="84">{
-                                                currentTagBuilder.WriteByte(input)
-                                                tagPosition++
-                                                continue</span>
-                                        } else<span class="cov0" title="0"> {
-
-                                                // fell off. Reset it all.
-                                                tagType = tagTypeNone
-                                                sBuilder.WriteString(currentTagBuilder.String())
-                                                currentTagBuilder.Reset()
-                                                tagPosition = 0
-                                                continue</span>
-                                        }
-
-                                } else<span class="cov9" title="630"> {
-
-                                        // If this is the final closing string of the open tag
-                                        if string(input) == tagOpenEnd </span><span class="cov5" title="27">{
-
-                                                currentTagBuilder.WriteByte(input)
-
-                                                newTag := extractProperties(currentTagBuilder.String())
-
-                                                stackLen := len(tagStack)
-
-                                                currentTagBuilder.Reset()
-
-                                                if stackLen &gt; 0 </span><span class="cov2" title="4">{
-                                                        sBuilder.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
-                                                }</span> else<span class="cov4" title="23"> {
-                                                        sBuilder.WriteString(newTag.PropagateAnsiCode(nil))
-                                                }</span>
-
-                                                <span class="cov5" title="27">tagStack = append(tagStack, newTag)
-
-                                                tagType = tagTypeNone
-                                                tagPosition = 0
-
-                                                continue</span>
-
-                                        } else<span class="cov8" title="603"> {
-                                                currentTagBuilder.WriteByte(input)
-                                                continue</span>
-                                        }
-
-                                }
-
-                        }
-
-                        <span class="cov7" title="125">if tagType == tagTypeClose </span><span class="cov7" title="125">{
-
-                                // if still trying to reach the end...
-                                if tagPosition &lt; len(tagCloseParts)-1 </span><span class="cov6" title="100">{
-
-                                        // if still tracking...
-                                        if input == tagCloseParts[tagPosition] </span><span class="cov6" title="100">{
-                                                currentTagBuilder.WriteByte(input)
-                                                tagPosition++
-                                                continue</span>
-                                        } else<span class="cov0" title="0"> {
-                                                // fell off. Reset it all.
-                                                tagType = tagTypeNone
-                                                sBuilder.WriteString(currentTagBuilder.String())
-                                                currentTagBuilder.Reset()
-                                                tagPosition = 0
-                                                continue</span>
-                                        }
-
-                                } else<span class="cov5" title="25"> {
-                                        currentTagBuilder.Reset()
-
-                                        // we're already at the end, we can parse it.
-                                        stackLen := len(tagStack)
-
-                                        if stackLen &gt; 2 </span><span class="cov1" title="2">{
-                                                sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
-                                        }</span> else<span class="cov4" title="23"> if stackLen &gt; 1 </span><span class="cov1" title="2">{
-                                                sBuilder.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
-                                        }</span> else<span class="cov4" title="21"> {
-                                                sBuilder.WriteString(AnsiResetAll())
-                                        }</span>
-
-                                        <span class="cov5" title="25">if stackLen &gt; 0 </span><span class="cov4" title="24">{
-                                                tagStack[len(tagStack)-1] = nil
-                                                tagStack = tagStack[0 : len(tagStack)-1]
-                                        }</span>
-
-                                        <span class="cov5" title="25">tagType = tagTypeNone
-                                        tagPosition = 0
-
-                                        continue</span>
-                                }
-
-                        }
-
-                }
-
-        }
-
-        <span class="cov4" title="16">if currentTagBuilder.Len() &gt; 0 </span><span class="cov1" title="1">{
-                sBuilder.WriteString(currentTagBuilder.String())
-                currentTagBuilder.Reset()
-        }</span>
-
-        // if there were any unclosed tags in the stream
-        <span class="cov4" title="16">if len(tagStack) &gt; 0 </span><span class="cov2" title="3">{
-                sBuilder.WriteString(AnsiResetAll())
-        }</span>
-
-        <span class="cov4" title="16">if sBuilder.Len() &gt; 0 </span><span class="cov4" title="16">{
-
-                outbound.WriteString(sBuilder.String())
-
-        }</span>
-
-        <span class="cov4" title="16">outbound.Flush()
-        return nil</span>
-}
-
 func (p *ansiProperties) AnsiReset() string <span class="cov0" title="0">{
         return "\033[39;49m"
 }</span>
 
-func (p ansiProperties) AnsiCode() string <span class="cov0" title="0">{
+func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string <span class="cov9" title="851">{
 
-        if p.bold </span><span class="cov0" title="0">{
-                if p.fg &lt; 90 &amp;&amp; p.fg != defaultFg </span><span class="cov0" title="0">{
-                        p.fg += boldIncrement
-                }</span>
-                <span class="cov0" title="0">if p.bg &lt; 90 &amp;&amp; p.fg != defaultBg </span><span class="cov0" title="0">{
-                        p.bg += boldIncrement
-                }</span>
-        }
-
-        <span class="cov0" title="0">return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"</span>
-
-}
-
-func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string <span class="cov5" title="31">{
-
-        if previous != nil </span><span class="cov3" title="6">{
-                if p.fg == defaultFg </span><span class="cov0" title="0">{
+        if previous != nil </span><span class="cov9" title="704">{
+                if p.fg == defaultFg </span><span class="cov2" title="3">{
                         p.fg = previous.fg
                 }</span>
-                <span class="cov3" title="6">if p.bg == defaultBg </span><span class="cov0" title="0">{
+                <span class="cov9" title="704">if p.bg == defaultBg </span><span class="cov6" title="61">{
                         p.bg = previous.bg
                 }</span>
-                <span class="cov3" title="6">if !p.bold </span><span class="cov3" title="5">{
+                <span class="cov9" title="704">if !p.bold </span><span class="cov9" title="703">{
                         p.bold = previous.bold
                 }</span>
         }
 
-        <span class="cov5" title="31">if p.bold </span><span class="cov2" title="3">{
-                if p.fg &lt; 90 &amp;&amp; p.fg != defaultFg </span><span class="cov2" title="3">{
+        <span class="cov9" title="851">if p.bold </span><span class="cov2" title="4">{
+                if p.fg &lt; 90 &amp;&amp; p.fg != defaultFg </span><span class="cov2" title="4">{
                         p.fg += boldIncrement
                 }</span>
-                <span class="cov2" title="3">if p.bg &lt; 90 &amp;&amp; p.fg != defaultBg </span><span class="cov2" title="3">{
+                <span class="cov2" title="4">if p.bg &lt; 90 &amp;&amp; p.fg != defaultBg </span><span class="cov2" title="4">{
                         p.bg += boldIncrement
                 }</span>
         }
 
-        <span class="cov5" title="31">return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"</span>
+        <span class="cov9" title="851">return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"</span>
 
 }
 
-func AnsiResetAll() string <span class="cov4" title="24">{
+func AnsiResetAll() string <span class="cov6" title="44">{
         return "\033[0m"
 }</span>
 
-func extractProperties(tagStr string) *ansiProperties <span class="cov5" title="27">{
+func extractProperties(tagStr string) *ansiProperties <span class="cov9" title="448">{
         ret := &amp;ansiProperties{fg: defaultFg, bg: defaultBg}
 
         result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
         var err error
-        for _, val := range result </span><span class="cov5" title="48">{
+        for _, val := range result </span><span class="cov10" title="857">{
 
                 switch val[matchPosTag] </span>{
-                case "fg":<span class="cov4" title="24">
-                        if ret.fg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov4" title="24">{
+                case "fg":<span class="cov9" title="442">
+                        if ret.fg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov9" title="442">{
                                 // if couldn't find a number, check for a mapped string
-                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov4" title="23">{
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov9" title="441">{
                                         ret.fg = val
                                 }</span> else<span class="cov1" title="1"> {
                                         ret.fg = defaultFg //-1
                                 }</span>
                         }
-                case "bg":<span class="cov4" title="20">
-                        if ret.bg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov4" title="19">{
+                case "bg":<span class="cov9" title="410">
+                        if ret.bg, err = strconv.Atoi(val[matchPosValue]); err != nil </span><span class="cov9" title="409">{
                                 // if couldn't find a number, check for a mapped string
-                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov4" title="18">{
+                                if val, ok := colorMap[val[matchPosValue]]; ok </span><span class="cov9" title="405">{
                                         // increment value to make it a bg value
                                         ret.bg = val + fgToBgIncrement
-                                }</span> else<span class="cov1" title="1"> {
+                                }</span> else<span class="cov2" title="4"> {
                                         ret.bg = defaultBg //-1
                                 }</span>
                         }
-                case "bold":<span class="cov2" title="4">
+                case "bold":<span class="cov3" title="5">
                         if ret.bold, err = strconv.ParseBool(val[matchPosValue]); err != nil </span><span class="cov1" title="1">{
                                 ret.bold = false
                         }</span>
@@ -440,8 +365,86 @@ func extractProperties(tagStr string) *ansiProperties <span class="cov5" title="
 
         }
 
-        <span class="cov5" title="27">return ret</span>
+        <span class="cov9" title="448">return ret</span>
 }
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package ansigo
+
+func NewTagMatcher(start byte, mid []byte, end byte, unknownLength bool) *tagMatcher <span class="cov4" title="36">{
+        t := tagMatcher{
+                startByte:  start,
+                midBytes:   mid,
+                endByte:    end,
+                exactMatch: !unknownLength,
+                totalSize:  uint8(len(mid) + 1), // total size without the end byte
+                position:   0,
+        }
+        return &amp;t
+}</span>
+
+type tagMatcher struct {
+        exactMatch bool // lets unknown bytes keep matching before the end character is found
+        totalSize  uint8
+        position   uint8
+        startByte  byte
+        endByte    byte
+        midBytes   []byte
+}
+
+func (t *tagMatcher) Seek(pos uint8) <span class="cov8" title="4458">{
+        t.position = pos
+}</span>
+
+func (t *tagMatcher) MatchNext(char byte) (matched bool, complete bool) <span class="cov10" title="30170">{
+
+        if t.position == 0 </span><span class="cov9" title="15073">{
+
+                // Look for starting byte
+                if char == t.startByte </span><span class="cov7" title="1792">{
+                        t.position++
+                        // Still matching
+                        return true, false
+                }</span>
+                // Failed to match.
+                <span class="cov9" title="13281">t.position = 0
+                return false, true</span>
+        }
+
+        <span class="cov9" title="15097">if t.position &gt;= t.totalSize </span><span class="cov9" title="10166">{
+
+                // Look for ending byte
+                if char == t.endByte </span><span class="cov6" title="892">{
+                        t.position++
+                        // Matched and done.
+                        return true, true
+                }</span>
+
+                <span class="cov8" title="9274">if t.exactMatch </span><span class="cov1" title="1">{
+                        // Failed to match and required exact
+                        t.position = 0
+                        return false, true
+                }</span>
+
+                // allows more characters before finishing.
+                <span class="cov8" title="9273">return true, false</span>
+        }
+
+        // Look for mid bytes match
+        <span class="cov8" title="4931">if char == t.midBytes[t.position-1] </span><span class="cov8" title="4033">{
+                t.position++
+                // Still matching
+                return true, false
+        }</span>
+
+        // Failed to match
+        <span class="cov6" title="898">t.position = 0
+        return false, true</span>
+}
+
+func (t *tagMatcher) Reset() <span class="cov8" title="4458">{
+        t.Seek(0)
+}</span>
 </pre>
 		
 		</div>

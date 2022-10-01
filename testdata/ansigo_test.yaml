@@ -49,3 +49,6 @@ Non boolean values:
 Invalid color strings:
    input: "<ansi fg=\"tomato\" bg=\"fish\">This is inside of ansi tags</ansi>"
    expected: "\x1b[39;49mThis is inside of ansi tags\x1b[0m"
+Bold:
+   input: "<ansi fg=\"red\" bold=\"true\">This is inside of ansi tags</ansi>"
+   expected: "\x1b[91;109mThis is inside of ansi tags\x1b[0m"

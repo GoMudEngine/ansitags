@@ -28,8 +28,6 @@ func main() {
 	input := bufio.NewReader(os.Stdin)
 	output := bufio.NewWriter(os.Stdout)
 
-	if err := ansigo.ParseStreaming(input, output); err != nil {
-		panic(err)
-	}
+	ansigo.ParseStreaming(input, output)
 
 }

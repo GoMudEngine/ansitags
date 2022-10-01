@@ -35,6 +35,14 @@ func TestParse(t *testing.T) {
 
 }
 
+func TestParseLarge(t *testing.T) {
+
+	testString := loadRawFile("testdata/ansigo_streaming_test.yaml")
+
+	_ = Parse(testString)
+
+}
+
 func loadTestFile(filename string) map[string]TestCase {
 
 	data := make(map[string]TestCase, 100)
@@ -49,6 +57,17 @@ func loadTestFile(filename string) map[string]TestCase {
 
 	return data
 
+}
+
+func loadRawFile(filename string) string {
+
+	yfile, err := ioutil.ReadFile(filename)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return string(yfile)
 }
 
 //
