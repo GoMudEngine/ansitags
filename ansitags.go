@@ -1,4 +1,4 @@
-package ansigo
+package ansitags
 
 import (
 	"bufio"

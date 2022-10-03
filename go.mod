@@ -1,4 +1,4 @@
-module github.com/Volte6/ansigo
+module github.com/Volte6/ansitags
 
 go 1.18
 

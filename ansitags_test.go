@@ -1,4 +1,4 @@
-package ansigo
+package ansitags
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ type TestCase struct {
 
 func TestParse(t *testing.T) {
 
-	testTable := loadTestFile("testdata/ansigo_test.yaml")
+	testTable := loadTestFile("testdata/ansitags_test.yaml")
 
 	for name, testCase := range testTable {
 
@@ -37,7 +37,7 @@ func TestParse(t *testing.T) {
 
 func TestParseLarge(t *testing.T) {
 
-	testString := loadRawFile("testdata/ansigo_streaming_test.yaml")
+	testString := loadRawFile("testdata/ansitags_streaming_test.yaml")
 
 	_ = Parse(testString)
 

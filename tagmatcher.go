@@ -1,4 +1,4 @@
-package ansigo
+package ansitags
 
 func NewTagMatcher(start byte, mid []byte, end byte, unknownLength bool) *tagMatcher {
 	t := tagMatcher{

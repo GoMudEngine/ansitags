@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-BIN ?= ansigo
+BIN ?= ansitags
 
 .PHONY: test
 test: ### Run tests with some verbose information filtered out and some minor styling
@@ -27,7 +27,7 @@ build:
 
 .PHONY: stream-test
 stream-test: build
-	cat testdata/ansigo_streaming_test.yaml | ./example/bin/$(BIN)
+	cat testdata/ansitags_streaming_test.yaml | ./example/bin/$(BIN)
 
 .PHONY: profile
 profile:

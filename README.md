@@ -1,6 +1,6 @@
-# ansigo
+# ansitags
 
-- [ansigo](#ansigo)
+- [ansitags](#ansitags)
   - [Overview](#overview)
   - [Quick Start](#quick-start)
   - [Future plans (Short term)](#future-plans-short-term)
@@ -8,23 +8,23 @@
 
 ## Overview
 
-_ansigo_ is a helper library that allows to you use common tags inside of text that result in [ANSI escape code](https://en.wikipedia.org/wiki/ANSI_escape_code#Colors) (color). Currently only one directional parsing is possible ( *tagged strings* ⮕ *color escaped strings* )
+_ansitags_ is a helper library that allows to you use common tags inside of text that result in [ANSI escape code](https://en.wikipedia.org/wiki/ANSI_escape_code#Colors) (color). Currently only one directional parsing is possible ( *tagged strings* ⮕ *color escaped strings* )
 
-- [ansigo.go](ansigo.go) Contains the code and structs for the basic parsing logic and flow of data, noteably `ansigo.Parse()` and `ansigo.ParseStreaming()`.
+- [ansitags.go](ansitags.go) Contains the code and structs for the basic parsing logic and flow of data, noteably `ansitags.Parse()` and `ansitags.ParseStreaming()`.
 - [ansiproperties.go](ansiproperties.go) handles basic ansi properties/tag parsing and conversion into valid escape codes.
 - [tagmatcher.go](tagmatcher.go) basic helper struct to simplify finding ansi "tag" matches.
-- [ansigo_test.go](ansigo_test.go) Contains unit tests, benchmarks, etc
-- [testdata/ansigo_test.yaml](testdata/ansigo_test.yaml) Contains unit test data with input & expect output. The ANSI _Control Sequence Introducer_ should be represented by a unicode escaped value - `\u001b` (Octal `33`, Hexadecimal `1b`, Decimal `27`)
+- [ansitags_test.go](ansitags_test.go) Contains unit tests, benchmarks, etc
+- [testdata/ansitags_test.yaml](testdata/ansitags_test.yaml) Contains unit test data with input & expect output. The ANSI _Control Sequence Introducer_ should be represented by a unicode escaped value - `\u001b` (Octal `33`, Hexadecimal `1b`, Decimal `27`)
 
 ## Quick Start
 
 Import the module:
 
-    import "github.com/Volte6/ansigo"
+    import "github.com/Volte6/ansitags"
 
 Parse and print a string:
 
-    fmt.Println( ansigo.Parse("This is a <ansi fg='red' bg='blue'>white text on a blue background</ansi>") )
+    fmt.Println( ansitags.Parse("This is a <ansi fg='red' bg='blue'>white text on a blue background</ansi>") )
 
 Result:
 

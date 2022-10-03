@@ -1,8 +1,9 @@
-package ansigo
+package ansitags
 
 import (
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -17,12 +18,14 @@ const (
 
 	defaultFg int = 39
 	defaultBg int = 49
+
+	posMax int = 16000
 )
 
 var (
 
 	// regular expressions
-	propertyRegex, _ = regexp.Compile(" (bg|fg|bold)=[\"']?([a-z0-9]+)[\"']?")
+	propertyRegex, _ = regexp.Compile(" (bg|fg|bold|position)=[\"']?([a-z0-9]+)[\"']?")
 
 	// map of strings to 4 bit color codes
 	colorMap map[string]int = map[string]int{
@@ -38,9 +41,10 @@ var (
 )
 
 type ansiProperties struct {
-	fg   int
-	bg   int
-	bold bool
+	fg       int
+	bg       int
+	bold     bool
+	position []uint16
 }
 
 func (p *ansiProperties) AnsiReset() string {
@@ -108,6 +112,23 @@ func extractProperties(tagStr string) *ansiProperties {
 		case "bold":
 			if ret.bold, err = strconv.ParseBool(val[matchPosValue]); err != nil {
 				ret.bold = false
+			}
+		case "position":
+
+			posArr := strings.Split(val[matchPosValue], ",")
+			if len(posArr) == 2 {
+				yPos := -1
+				xPos := -1
+				if xPos, err = strconv.Atoi(posArr[0]); err != nil {
+					continue
+				}
+				if yPos, err = strconv.Atoi(posArr[1]); err != nil {
+					continue
+				}
+
+				if xPos > -1 && yPos > -1 && xPos <= posMax && yPos <= posMax {
+					ret.position = []uint16{uint16(xPos), uint16(yPos)}
+				}
 			}
 		}
 		//fmt.Printf("%#v = %#v\n", val[matchPosTag], val[matchPosValue])
