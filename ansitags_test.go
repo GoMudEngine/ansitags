@@ -62,7 +62,7 @@ func TestParseMono(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 
-			output := Parse(testCase.Input, MonoChrome)
+			output := Parse(testCase.Input, Monochrome)
 			assert.Equal(t, testCase.Expected, output)
 
 			// fmt.Println(output)
