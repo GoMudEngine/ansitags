@@ -74,8 +74,10 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 		}
 	}
 
+	if p.fg == 0 && p.bg == 0 {
+		return ""
+	}
 	return "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"
-
 }
 
 func AnsiResetAll() string {
