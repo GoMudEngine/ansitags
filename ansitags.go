@@ -8,6 +8,7 @@ import (
 )
 
 type parseMode uint8
+type behavior uint8
 
 const (
 	tagStart byte = '<'
@@ -18,20 +19,35 @@ const (
 
 	parseModeNone     parseMode = 0
 	parseModeMatching parseMode = 1
+
+	stripTags  behavior = iota // remove all valid ansitags
+	monoChrome                 // ignore any color changing properties
+
 )
 
-func Parse(str string) string {
+func Parse(str string, behaviors ...behavior) string {
 
 	input := bufio.NewReader(strings.NewReader(str))
 
 	var outputBuffer bytes.Buffer
 	output := bufio.NewWriter(&outputBuffer)
-	ParseStreaming(input, output)
+	ParseStreaming(input, output, behaviors...)
 
 	return outputBuffer.String()
 }
 
-func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...behavior) {
+
+	var stripAllTags bool = false
+	var stripAllColor bool = false
+
+	for _, b := range behaviors {
+		if b == stripTags {
+			stripAllTags = true
+		} else if b == monoChrome {
+			stripAllColor = true
+		}
+	}
 
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
 
@@ -77,17 +93,22 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 				// If this is the final closing string of the open tag
 
 				newTag := extractProperties(currentTagBuilder.String())
-				currentTagBuilder.Reset()
-
-				stackLen := len(tagStack)
-
-				if stackLen > 0 {
-					outbound.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
-				} else {
-					outbound.WriteString(newTag.PropagateAnsiCode(nil))
+				if stripAllColor {
+					newTag.fg = 0
+					newTag.bg = 0
 				}
 
-				tagStack = append(tagStack, newTag)
+				currentTagBuilder.Reset()
+
+				if !stripAllTags {
+					stackLen := len(tagStack)
+					if stackLen > 0 {
+						outbound.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+					} else {
+						outbound.WriteString(newTag.PropagateAnsiCode(nil))
+					}
+					tagStack = append(tagStack, newTag)
+				}
 
 				// reset matchers
 				mode = parseModeNone
@@ -108,20 +129,22 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 				}
 
 				currentTagBuilder.Reset()
-				// we're already at the end, we can parse it.
-				stackLen := len(tagStack)
+				if !stripAllTags {
+					// we're already at the end, we can parse it.
+					stackLen := len(tagStack)
 
-				if stackLen > 2 {
-					outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
-				} else if stackLen > 1 {
-					outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
-				} else {
-					outbound.WriteString(AnsiResetAll())
-				}
+					if stackLen > 2 {
+						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+					} else if stackLen > 1 {
+						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+					} else {
+						outbound.WriteString(AnsiResetAll())
+					}
 
-				if stackLen > 0 {
-					tagStack[len(tagStack)-1] = nil
-					tagStack = tagStack[0 : len(tagStack)-1]
+					if stackLen > 0 {
+						tagStack[len(tagStack)-1] = nil
+						tagStack = tagStack[0 : len(tagStack)-1]
+					}
 				}
 
 				// reset matchers
@@ -136,21 +159,26 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer) {
 
 			// open and close both failed to match. Reset everything
 			mode = parseModeNone
-			outbound.WriteString(currentTagBuilder.String())
+
+			if !stripAllTags {
+				outbound.WriteString(currentTagBuilder.String())
+			}
 			currentTagBuilder.Reset()
 			continue
 		}
 
 	}
 
-	if currentTagBuilder.Len() > 0 {
-		outbound.WriteString(currentTagBuilder.String())
-		currentTagBuilder.Reset()
-	}
+	if !stripAllTags {
+		if currentTagBuilder.Len() > 0 {
+			outbound.WriteString(currentTagBuilder.String())
+			currentTagBuilder.Reset()
+		}
 
-	// if there were any unclosed tags in the stream
-	if len(tagStack) > 0 {
-		outbound.WriteString(AnsiResetAll())
+		// if there were any unclosed tags in the stream
+		if len(tagStack) > 0 {
+			outbound.WriteString(AnsiResetAll())
+		}
 	}
 
 	outbound.Flush()

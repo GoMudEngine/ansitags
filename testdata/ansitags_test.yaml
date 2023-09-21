@@ -1,6 +1,9 @@
 #
 # "expected" (output) should be properly unicode escaped - using json.Marshal on strings works well for this
 #
+No Tag:
+    input: "This string has no ansi tags"
+    expected: "This string has no ansi tags"
 Named Colors:
     input: "<ansi fg=black bg=\"white\">A</ansi><ansi fg=\"red\" bg=\"cyan\">B</ansi><ansi fg=\"green\" bg=\"magenta\">C</ansi><ansi fg=\"yellow\" bg=\"blue\">D</ansi><ansi fg=\"blue\" bg=\"yellow\">E</ansi><ansi fg=\"magenta\" bg=\"green\">F</ansi><ansi fg=\"cyan\" bg=\"red\">G</ansi><ansi fg=\"white\" bg=\"black\">H</ansi>"
     expected: "\u001b[30;47mA\u001b[0m\u001b[31;46mB\u001b[0m\u001b[32;45mC\u001b[0m\u001b[33;44mD\u001b[0m\u001b[34;43mE\u001b[0m\u001b[35;42mF\u001b[0m\u001b[36;41mG\u001b[0m\u001b[37;40mH\u001b[0m"

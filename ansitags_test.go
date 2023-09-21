@@ -35,6 +35,44 @@ func TestParse(t *testing.T) {
 
 }
 
+func TestParseStripped(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_strip.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input, stripTags)
+			assert.Equal(t, testCase.Expected, output)
+
+			// fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
+func TestParseMono(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_monochrome.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input, monoChrome)
+			assert.Equal(t, testCase.Expected, output)
+
+			// fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
 func TestParseLarge(t *testing.T) {
 
 	testString := loadRawFile("testdata/ansitags_streaming_test.yaml")
