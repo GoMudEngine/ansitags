@@ -43,7 +43,7 @@ func TestParseStripped(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 
-			output := Parse(testCase.Input, stripTags)
+			output := Parse(testCase.Input, StripTags)
 			assert.Equal(t, testCase.Expected, output)
 
 			// fmt.Println(output)
@@ -62,7 +62,7 @@ func TestParseMono(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 
-			output := Parse(testCase.Input, monoChrome)
+			output := Parse(testCase.Input, MonoChrome)
 			assert.Equal(t, testCase.Expected, output)
 
 			// fmt.Println(output)

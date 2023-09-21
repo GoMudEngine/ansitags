@@ -20,8 +20,8 @@ const (
 	parseModeNone     parseMode = 0
 	parseModeMatching parseMode = 1
 
-	stripTags  behavior = iota // remove all valid ansitags
-	monoChrome                 // ignore any color changing properties
+	StripTags  behavior = iota // remove all valid ansitags
+	MonoChrome                 // ignore any color changing properties
 
 )
 
@@ -42,9 +42,9 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 	var stripAllColor bool = false
 
 	for _, b := range behaviors {
-		if b == stripTags {
+		if b == StripTags {
 			stripAllTags = true
-		} else if b == monoChrome {
+		} else if b == MonoChrome {
 			stripAllColor = true
 		}
 	}
