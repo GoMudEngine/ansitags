@@ -8,7 +8,7 @@ import (
 )
 
 type parseMode uint8
-type behavior uint8
+type ParseBehavior uint8
 
 const (
 	tagStart byte = '<'
@@ -20,12 +20,12 @@ const (
 	parseModeNone     parseMode = 0
 	parseModeMatching parseMode = 1
 
-	StripTags  behavior = iota // remove all valid ansitags
-	MonoChrome                 // ignore any color changing properties
+	StripTags  ParseBehavior = iota // remove all valid ansitags
+	MonoChrome                      // ignore any color changing properties
 
 )
 
-func Parse(str string, behaviors ...behavior) string {
+func Parse(str string, behaviors ...ParseBehavior) string {
 
 	input := bufio.NewReader(strings.NewReader(str))
 
@@ -36,7 +36,7 @@ func Parse(str string, behaviors ...behavior) string {
 	return outputBuffer.String()
 }
 
-func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...behavior) {
+func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...ParseBehavior) {
 
 	var stripAllTags bool = false
 	var stripAllColor bool = false
