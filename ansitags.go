@@ -4,7 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"os"
+	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 type parseMode uint8
@@ -182,4 +186,46 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 	}
 
 	outbound.Flush()
+}
+
+func LoadAliases(yamlFilePath string) error {
+
+	data := make(map[string]map[string]string, 100)
+
+	if yfile, err := os.ReadFile(yamlFilePath); err != nil {
+		return err
+	} else {
+		if err := yaml.Unmarshal(yfile, &data); err != nil {
+			return err
+		}
+	}
+
+	for aliasGroup, aliases := range data {
+
+		if aliasGroup == "color" {
+			for alias, real := range aliases {
+				// try mapping to an existing color alias
+				if val, ok := colorMap[real]; ok {
+					colorMap[alias] = val
+				} else {
+					// allow a numeric mapping
+					if numVal, err := strconv.Atoi(real); err == nil {
+						colorMap[alias] = numVal
+					}
+				}
+			}
+		}
+
+		if aliasGroup == "position" {
+			for alias, real := range aliases {
+				posArr := strings.Split(real, ",")
+				if len(posArr) == 2 {
+					positionMap[alias] = posArr
+				}
+			}
+		}
+
+	}
+
+	return nil
 }

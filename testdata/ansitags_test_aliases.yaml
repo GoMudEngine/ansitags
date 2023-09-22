@@ -1,0 +1,6 @@
+#
+# "expected" (output) should be properly unicode escaped - using json.Marshal on strings works well for this
+#
+Color Alias:
+    input: "<ansi fg='date'>This date string is magenta</ansi>"
+    expected: "\x1b[35mThis date string is magenta\x1b[0m"
