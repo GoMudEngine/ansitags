@@ -16,9 +16,68 @@ type TestCase struct {
 	Expected string `yaml:"expected"`
 }
 
-func TestParse(t *testing.T) {
+func TestParseAliases(t *testing.T) {
 
-	testTable := loadTestFile("testdata/ansitags_test.yaml")
+	testTable := loadTestFile("testdata/ansitags_test_aliases.yaml")
+
+	LoadAliases("aliases.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input)
+			assert.Equal(t, testCase.Expected, output)
+
+			// fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
+func TestParseClear(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_clear.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input)
+			assert.Equal(t, testCase.Expected, output)
+
+			//fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
+func TestParsePosition(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_position.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input)
+			assert.Equal(t, testCase.Expected, output)
+
+			//fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
+func TestParseColor(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_color.yaml")
 
 	for name, testCase := range testTable {
 
@@ -75,7 +134,7 @@ func TestParseMono(t *testing.T) {
 
 func TestParseLarge(t *testing.T) {
 
-	testString := loadRawFile("testdata/ansitags_streaming_test.yaml")
+	testString := loadRawFile("testdata/ansitags_test_streaming.yaml")
 
 	_ = Parse(testString)
 

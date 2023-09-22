@@ -27,7 +27,7 @@ build:
 
 .PHONY: stream-test
 stream-test: build
-	cat testdata/ansitags_streaming_test.yaml | ./example/bin/$(BIN)
+	cat testdata/ansitags_test_streaming.yaml | ./example/bin/$(BIN)
 
 .PHONY: profile
 profile:

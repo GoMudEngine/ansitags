@@ -1,0 +1,24 @@
+#
+# Aliases are a way to custom name values for ansi tag properties.
+# For example, you may want to always use the same color when displaying dates, 
+# so you may defined a "date" color that is an alias for the color "magenta".
+# Property names themselves cannot be aliases. For example, in "<ansi fg="yellow">Text</ansi>"
+# "fg" cannot be an alias, but the value of "fg" (yellow) can be aliased to another name.
+#
+# All names and values can only be the following character sets:
+# a-z 
+# 0-9 
+# ,_-
+#
+# Aliases are organized into groups, only the following groups are valid:
+# color - for foreground and background colors
+# position - for cursor x,y position
+#
+color:
+  date: magenta
+  username: cyan
+position:
+  topleft: 1,1
+  bottomleft: 1,999
+  bottomright: 999,999
+  topright: 999,1
