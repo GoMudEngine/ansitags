@@ -3,4 +3,4 @@
 #
 Color Alias:
     input: "<ansi fg='date'>This date string is magenta</ansi>"
-    expected: "\x1b[35mThis date string is magenta\x1b[0m"
+    expected: "\x1b[35;49mThis date string is magenta\x1b[0m"

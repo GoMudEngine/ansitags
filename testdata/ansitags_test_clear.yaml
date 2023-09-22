@@ -3,13 +3,13 @@
 #
 After Cursor:
     input: "<ansi clear='aftercursor'>Clear everything after this</ansi>"
-    expected: "\x1b[0JClear everything after this\x1b[0m"
+    expected: "\x1b[0J\x1b[39;49mClear everything after this\x1b[0m"
 Before Cursor:
     input: "<ansi clear='beforecursor'>Clear everything before this</ansi>"
-    expected: "\x1b[1JClear everything before this\x1b[0m"
+    expected: "\x1b[1J\x1b[39;49mClear everything before this\x1b[0m"
 All:
     input: "<ansi clear='all'>Clear screen and scrollback</ansi>"
-    expected: "\x1b[2JClear screen and scrollback\x1b[0m"
+    expected: "\x1b[2J\x1b[39;49mClear screen and scrollback\x1b[0m"
 Scrollback Only:
     input: "<ansi clear='scrollback'>Clear scrollback</ansi>"
-    expected: "\x1b[3JClear scrollback\x1b[0m"
+    expected: "\x1b[3J\x1b[39;49mClear scrollback\x1b[0m"

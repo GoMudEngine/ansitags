@@ -102,26 +102,21 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 		positionCode = "\033[" + strconv.Itoa(int(p.position[1])) + ";" + strconv.Itoa(int(p.position[0])) + "H"
 	}
 
-	/*
-		var colorCode string = ""
-		if p.fg > -1 || p.bg > -1 {
-			colorCode = "\033["
-			if p.fg > -1 {
-				colorCode += strconv.Itoa(p.fg)
-				if p.bg > -1 {
-					colorCode += ";" + strconv.Itoa(p.bg)
-				}
-				colorCode += "m"
-			} else {
-				colorCode += strconv.Itoa(p.bg) + "m"
+	var colorCode string = ""
+	if p.fg > -1 || p.bg > -1 {
+		colorCode = "\033["
+		if p.fg > -1 {
+			colorCode += strconv.Itoa(p.fg)
+			if p.bg > -1 {
+				colorCode += ";" + strconv.Itoa(p.bg)
 			}
+			colorCode += "m"
+		} else {
+			colorCode += strconv.Itoa(p.bg) + "m"
 		}
-	*/
-
-	if p.fg == 0 && p.bg == 0 {
-		return clearCode + positionCode
 	}
-	return clearCode + positionCode + "\033[" + strconv.Itoa(p.fg) + ";" + strconv.Itoa(p.bg) + "m"
+
+	return clearCode + positionCode + colorCode
 }
 
 func AnsiResetAll() string {
@@ -130,7 +125,6 @@ func AnsiResetAll() string {
 
 func extractProperties(tagStr string) *ansiProperties {
 	ret := &ansiProperties{fg: defaultFg, bg: defaultBg, clear: -1}
-	//ret := &ansiProperties{fg: 0, bg: 0, clear: -1}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
