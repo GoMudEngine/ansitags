@@ -34,10 +34,8 @@ Result:
 
 - Expand to [8 bit color](https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit) support
 - CSI sequence support such as cursor position
-- Support parsing streaming bytes vs entire string
 
 ## Future plans (Long term)
 
 - Stripping out color codes / tags from strings
 - Generating color-styled HTML from color codes / tags
-- Load color string-to-code map from flat file to allow extending easily. Possibly include other alias functionality.
