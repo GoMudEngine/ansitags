@@ -21,6 +21,9 @@ const (
 	defaultFg int = 39
 	defaultBg int = 49
 
+	defaultFg256 int = -2
+	defaultBg256 int = -2
+
 	posMax int = 16000
 )
 
@@ -114,7 +117,7 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 		}
 	}
 
-	if p.bold {
+	if p.bold && colorMode == Color8 {
 		if p.fg < 90 && p.fg != defaultFg {
 			p.fg += boldIncrement
 		}
@@ -150,9 +153,14 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 	} else {
 		if p.fg > -1 {
 			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
+		} else if p.fg == defaultFg256 {
+			colorCode += "\033[38;5;m"
 		}
+
 		if p.bg > -1 {
 			colorCode += "\033[48;5;" + strconv.Itoa(p.bg) + `m`
+		} else if p.bg == defaultBg256 {
+			colorCode += "\033[48;5;m"
 		}
 	}
 
@@ -168,7 +176,14 @@ func AnsiResetAll() string {
 }
 
 func extractProperties(tagStr string) *ansiProperties {
-	ret := &ansiProperties{fg: defaultFg, bg: defaultBg, clear: -1}
+
+	var ret *ansiProperties
+
+	if colorMode == Color8 {
+		ret = &ansiProperties{fg: defaultFg, bg: defaultBg, clear: -1}
+	} else {
+		ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
+	}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
@@ -189,7 +204,11 @@ func extractProperties(tagStr string) *ansiProperties {
 				if aliasFound {
 					ret.fg = colorVal
 				} else {
-					ret.fg = defaultFg
+					if colorMode == Color8 {
+						ret.fg = defaultFg
+					} else {
+						ret.fg = defaultFg256
+					}
 				}
 
 			}
@@ -206,7 +225,11 @@ func extractProperties(tagStr string) *ansiProperties {
 				if aliasFound {
 					ret.bg = colorVal
 				} else {
-					ret.bg = defaultBg
+					if colorMode == Color8 {
+						ret.bg = defaultBg
+					} else {
+						ret.bg = defaultBg256
+					}
 				}
 
 			}
