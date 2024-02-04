@@ -29,6 +29,10 @@ build:
 stream-test: build
 	cat testdata/ansitags_test_streaming.yaml | ./example/bin/$(BIN)
 
+.PHONY: stream-test-256
+stream-test-256: build
+	cat testdata/ansitags_test_streaming-256.yaml | COLOR_MODE=256 ./example/bin/$(BIN) 
+
 .PHONY: profile
 profile:
 	go test -cpuprofile cpu.prof -memprofile mem.prof -bench .
