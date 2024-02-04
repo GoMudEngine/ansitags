@@ -11,12 +11,16 @@
 # ,_-
 #
 # Aliases are organized into groups, only the following groups are valid:
-# color - for foreground and background colors
+# color8 - 3/4 bit color pallette 
+# color256 - 256 color palette
 # position - for cursor x,y position
 #
-color:
+color8:
   date: magenta
   username: cyan
+color256:
+  date: 207
+  username: 195
 position:
   topleft: 1,1
   bottomleft: 1,999

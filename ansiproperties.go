@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+type ColorMode uint8
+
 const (
 	// regex result data indices
 	matchPosFull  int = 0
@@ -22,13 +24,20 @@ const (
 	posMax int = 16000
 )
 
+const (
+	// 8 bit color mode
+	Color8 ColorMode = iota
+	// 256 bit color mode
+	Color256
+)
+
 var (
 
 	// regular expressions
 	propertyRegex, _ = regexp.Compile(" (bg|fg|bold|position|clear)=[\"']?([a-z0-9,_-]+)[\"']?")
 
 	// map of strings to 4 bit color codes
-	colorMap map[string]int = map[string]int{
+	colorMap8 map[string]int = map[string]int{
 		"black":   30,
 		"red":     31,
 		"green":   32,
@@ -37,6 +46,26 @@ var (
 		"magenta": 35,
 		"cyan":    36,
 		"white":   37,
+	}
+
+	// map of strings to 8 bit color codes
+	colorMap256 map[string]int = map[string]int{
+		"black":        0,
+		"red":          1,
+		"green":        2,
+		"yellow":       3,
+		"blue":         4,
+		"magenta":      5,
+		"cyan":         6,
+		"white":        7,
+		"black-bold":   8,
+		"red-bold":     9,
+		"green-bold":   10,
+		"yellow-bold":  11,
+		"blue-bold":    12,
+		"magenta-bold": 13,
+		"cyan-bold":    14,
+		"white-bold":   15,
 	}
 
 	positionMap map[string][]string = map[string][]string{
@@ -55,6 +84,8 @@ var (
 		"all":          2,
 		"scrollback":   3,
 	}
+
+	colorMode ColorMode = Color8
 )
 
 type ansiProperties struct {
@@ -103,20 +134,33 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 	}
 
 	var colorCode string = ""
-	if p.fg > -1 || p.bg > -1 {
-		colorCode = "\033["
-		if p.fg > -1 {
-			colorCode += strconv.Itoa(p.fg)
-			if p.bg > -1 {
-				colorCode += ";" + strconv.Itoa(p.bg)
+	if colorMode == Color8 {
+		if p.fg > -1 || p.bg > -1 {
+			colorCode = "\033["
+			if p.fg > -1 {
+				colorCode += strconv.Itoa(p.fg)
+				if p.bg > -1 {
+					colorCode += ";" + strconv.Itoa(p.bg)
+				}
+				colorCode += "m"
+			} else {
+				colorCode += strconv.Itoa(p.bg) + "m"
 			}
-			colorCode += "m"
-		} else {
-			colorCode += strconv.Itoa(p.bg) + "m"
+		}
+	} else {
+		if p.fg > -1 {
+			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
+		}
+		if p.bg > -1 {
+			colorCode += "\033[48;5;" + strconv.Itoa(p.bg) + `m`
 		}
 	}
 
 	return clearCode + positionCode + colorCode
+}
+
+func SetColorMode(mode ColorMode) {
+	colorMode = mode
 }
 
 func AnsiResetAll() string {
@@ -128,29 +172,48 @@ func extractProperties(tagStr string) *ansiProperties {
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
+	var colorVal int
+	var aliasFound bool
 	for _, match := range result {
 
 		switch match[matchPosTag] {
 		case "fg":
 			if ret.fg, err = strconv.Atoi(match[matchPosValue]); err != nil {
-				// if couldn't find a number, check for a mapped string
-				if val, ok := colorMap[match[matchPosValue]]; ok {
-					ret.fg = val
+
+				if colorMode == Color8 {
+					colorVal, aliasFound = colorMap8[match[matchPosValue]]
+				} else {
+					colorVal, aliasFound = colorMap256[match[matchPosValue]]
+				}
+
+				if aliasFound {
+					ret.fg = colorVal
 				} else {
 					ret.fg = defaultFg
 				}
+
 			}
 		case "bg":
 			if ret.bg, err = strconv.Atoi(match[matchPosValue]); err != nil {
-				// if couldn't find a number, check for a mapped string
-				if val, ok := colorMap[match[matchPosValue]]; ok {
-					// increment value to make it a bg value
-					ret.bg = val + fgToBgIncrement
+
+				if colorMode == Color8 {
+					colorVal, aliasFound = colorMap8[match[matchPosValue]]
+					colorVal += 10
+				} else {
+					colorVal, aliasFound = colorMap256[match[matchPosValue]]
+				}
+
+				if aliasFound {
+					ret.bg = colorVal
 				} else {
 					ret.bg = defaultBg
 				}
+
 			}
 		case "bold":
+			if colorMode != Color8 {
+				continue
+			}
 			if ret.bold, err = strconv.ParseBool(match[matchPosValue]); err != nil {
 				ret.bold = false
 			}

@@ -202,15 +202,29 @@ func LoadAliases(yamlFilePath string) error {
 
 	for aliasGroup, aliases := range data {
 
-		if aliasGroup == "color" {
+		if aliasGroup == "color8" {
 			for alias, real := range aliases {
 				// try mapping to an existing color alias
-				if val, ok := colorMap[real]; ok {
-					colorMap[alias] = val
+				if val, ok := colorMap8[real]; ok {
+					colorMap8[alias] = val
 				} else {
 					// allow a numeric mapping
 					if numVal, err := strconv.Atoi(real); err == nil {
-						colorMap[alias] = numVal
+						colorMap8[alias] = numVal
+					}
+				}
+			}
+		}
+
+		if aliasGroup == "color256" {
+			for alias, real := range aliases {
+				// try mapping to an existing color alias
+				if val, ok := colorMap256[real]; ok {
+					colorMap256[alias] = val
+				} else {
+					// allow a numeric mapping
+					if numVal, err := strconv.Atoi(real); err == nil {
+						colorMap256[alias] = numVal
 					}
 				}
 			}
