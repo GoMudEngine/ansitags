@@ -21,6 +21,7 @@ const (
 	defaultFg int = 39
 	defaultBg int = 49
 
+	// 256 color specific
 	defaultFg256 int = -2
 	defaultBg256 int = -2
 
