@@ -21,7 +21,6 @@ const (
 	defaultFg int = 39
 	defaultBg int = 49
 
-	// 256 color specific
 	defaultFg256 int = -2
 	defaultBg256 int = -2
 
@@ -107,14 +106,23 @@ func (p *ansiProperties) AnsiReset() string {
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 	if previous != nil {
-		if p.fg == defaultFg {
-			p.fg = previous.fg
-		}
-		if p.bg == defaultBg {
-			p.bg = previous.bg
-		}
-		if !p.bold {
-			p.bold = previous.bold
+		if colorMode == Color8 {
+			if p.fg == defaultFg {
+				p.fg = previous.fg
+			}
+			if p.bg == defaultBg {
+				p.bg = previous.bg
+			}
+			if !p.bold {
+				p.bold = previous.bold
+			}
+		} else {
+			if p.fg == defaultFg256 {
+				p.fg = previous.fg
+			}
+			if p.bg == defaultBg256 {
+				p.bg = previous.bg
+			}
 		}
 	}
 
@@ -152,16 +160,17 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 			}
 		}
 	} else {
+
 		if p.fg > -1 {
 			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
 		} else if p.fg == defaultFg256 {
-			colorCode += "\033[38;5;m"
+			colorCode += "\033[39m"
 		}
 
 		if p.bg > -1 {
 			colorCode += "\033[48;5;" + strconv.Itoa(p.bg) + `m`
 		} else if p.bg == defaultBg256 {
-			colorCode += "\033[48;5;m"
+			colorCode += "\033[49m"
 		}
 	}
 
