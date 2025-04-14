@@ -1,4 +1,4 @@
-module github.com/Volte6/ansitags
+module github.com/GoMudEngine/ansitags
 
 go 1.18
 

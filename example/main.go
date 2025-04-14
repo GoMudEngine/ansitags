@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Volte6/ansitags"
+	"github.com/GoMudEngine/ansitags"
 )
 
 // accepts a string via shell pipe and processes with ansitags.Parse()
