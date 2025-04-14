@@ -20,7 +20,7 @@ _ansitags_ is a helper library that allows to you use common tags inside of text
 
 Import the module:
 
-    import "github.com/Volte6/ansitags"
+    import "github.com/GoMudEngine/ansitags"
 
 Parse and print a string:
 
