@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type ColorMode uint8
@@ -89,6 +90,8 @@ var (
 	}
 
 	colorMode ColorMode = Color8
+
+	rwLock = sync.RWMutex{}
 )
 
 type ansiProperties struct {

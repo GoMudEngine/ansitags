@@ -3,6 +3,7 @@ package ansitags
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -15,18 +16,19 @@ type parseMode uint8
 type ParseBehavior uint8
 
 const (
-	tagStart byte = '<'
-	tagEnd   byte = '>'
-
-	tagOpen  string = "ansi"  // will be wrapped in tagStart and tagEnd
-	tagClose string = "/ansi" // will be wrapped in tagStart and tagEnd
-
 	parseModeNone     parseMode = 0
 	parseModeMatching parseMode = 1
 
 	StripTags  ParseBehavior = iota // remove all valid ansitags
 	Monochrome                      // ignore any color changing properties
+)
 
+var (
+	tagStart byte = '<'
+	tagEnd   byte = '>'
+
+	tagOpen  string = "ansi"  // will be wrapped in tagStart and tagEnd
+	tagClose string = "/ansi" // will be wrapped in tagStart and tagEnd
 )
 
 func Parse(str string, behaviors ...ParseBehavior) string {
@@ -41,6 +43,9 @@ func Parse(str string, behaviors ...ParseBehavior) string {
 }
 
 func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...ParseBehavior) {
+
+	rwLock.RLock()
+	defer rwLock.RUnlock()
 
 	var stripAllTags bool = false
 	var stripAllColor bool = false
@@ -64,13 +69,13 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 	for {
 		input, err := inbound.ReadByte()
+
 		if err != nil && err == io.EOF {
 			break
 		}
 
 		// If not currently in any modes, look for any tags
 		if mode == parseModeNone {
-
 			if input != tagStart {
 				// If it's not an opening tag and we're looking for it (zero position)
 				// Write it to the output string and go to next
@@ -89,6 +94,7 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 			closeMatch, closeMatchDone := closeMatcher.MatchNext(input)
 
 			if openMatch {
+
 				currentTagBuilder.WriteByte(input)
 
 				if !openMatchDone {
@@ -161,6 +167,10 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 			// No close match was found. Reset the matcher
 			closeMatcher.Reset()
 
+			if closeMatchDone && openMatchDone {
+				currentTagBuilder.WriteByte(input)
+			}
+
 			// open and close both failed to match. Reset everything
 			mode = parseModeNone
 
@@ -188,57 +198,115 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 	outbound.Flush()
 }
 
-func LoadAliases(yamlFilePath string) error {
+func SetAlias(alias string, value int, aliasGroup ...string) error {
 
-	data := make(map[string]map[string]string, 100)
+	rwLock.Lock()
+	defer rwLock.Unlock()
 
-	if yfile, err := os.ReadFile(yamlFilePath); err != nil {
-		return err
-	} else {
-		if err := yaml.Unmarshal(yfile, &data); err != nil {
-			return err
+	if value < 0 || value > 255 {
+		return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
+	}
+
+	g := `color256`
+	if len(aliasGroup) > 0 {
+		if aliasGroup[0] == `color8` {
+			g = `color8`
 		}
 	}
 
-	for aliasGroup, aliases := range data {
+	if g == "color8" {
+		colorMap8[alias] = value
+	} else {
+		colorMap256[alias] = value
+	}
 
-		if aliasGroup == "color8" {
-			for alias, real := range aliases {
-				// try mapping to an existing color alias
-				if val, ok := colorMap8[real]; ok {
-					colorMap8[alias] = val
-				} else {
-					// allow a numeric mapping
-					if numVal, err := strconv.Atoi(real); err == nil {
-						colorMap8[alias] = numVal
+	return nil
+}
+
+func SetAliases(aliases map[string]int, aliasGroup ...string) error {
+
+	rwLock.Lock()
+	defer rwLock.Unlock()
+
+	g := `color256`
+	if len(aliasGroup) > 0 {
+		if aliasGroup[0] == `color8` {
+			g = `color8`
+		}
+	}
+
+	for alias, value := range aliases {
+		if value < 0 || value > 255 {
+			return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
+		}
+
+		if g == "color8" {
+			colorMap8[alias] = value
+		} else {
+			colorMap256[alias] = value
+		}
+	}
+
+	return nil
+}
+
+func LoadAliases(yamlFilePaths ...string) error {
+
+	rwLock.Lock()
+	defer rwLock.Unlock()
+
+	data := make(map[string]map[string]string, 100)
+
+	for _, yamlFilePath := range yamlFilePaths {
+
+		if yfile, err := os.ReadFile(yamlFilePath); err != nil {
+			return err
+		} else {
+			if err := yaml.Unmarshal(yfile, &data); err != nil {
+				return err
+			}
+		}
+
+		for aliasGroup, aliases := range data {
+
+			if aliasGroup == "color8" {
+				for alias, real := range aliases {
+					// try mapping to an existing color alias
+					if val, ok := colorMap8[real]; ok {
+						colorMap8[alias] = val
+					} else {
+						// allow a numeric mapping
+						if numVal, err := strconv.Atoi(real); err == nil {
+							colorMap8[alias] = numVal
+						}
 					}
 				}
 			}
-		}
 
-		if aliasGroup == "color256" {
-			for alias, real := range aliases {
-				// try mapping to an existing color alias
-				if val, ok := colorMap256[real]; ok {
-					colorMap256[alias] = val
-				} else {
-					// allow a numeric mapping
-					if numVal, err := strconv.Atoi(real); err == nil {
-						colorMap256[alias] = numVal
+			if aliasGroup == "color256" {
+				for alias, real := range aliases {
+					// try mapping to an existing color alias
+					if val, ok := colorMap256[real]; ok {
+						colorMap256[alias] = val
+					} else {
+						// allow a numeric mapping
+						if numVal, err := strconv.Atoi(real); err == nil {
+							colorMap256[alias] = numVal
+						}
 					}
 				}
 			}
-		}
 
-		if aliasGroup == "position" {
-			for alias, real := range aliases {
-				posArr := strings.Split(real, ",")
-				if len(posArr) == 2 {
-					positionMap[alias] = posArr
+			if aliasGroup == "position" {
+				for alias, real := range aliases {
+					posArr := strings.Split(real, ",")
+					if len(posArr) == 2 {
+						positionMap[alias] = posArr
+					}
 				}
 			}
-		}
 
+		}
 	}
 
 	return nil
