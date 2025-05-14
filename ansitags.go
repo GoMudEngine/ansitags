@@ -248,7 +248,7 @@ func LoadAliases(yamlFilePaths ...string) error {
 
 		for aliasGroup, aliases := range data {
 
-			if aliasGroup == "colors" {
+			if aliasGroup == "colors" || aliasGroup == "colors256" {
 
 				aliasToAlias := map[string]string{}
 
