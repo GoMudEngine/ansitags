@@ -49,3 +49,9 @@ Background only:
 Invalid color strings:
    input: "<ansi fg=\"tomato\" bg=\"fish\">This is inside of ansi tags</ansi>"
    expected: "\x1b[0mThis is inside of ansi tags\x1b[0m"
+Nesting:
+   input: '<ansi fg="10">.:</ansi> <ansi fg="226"><ansi fg="196">Test</ansi> More</ansi>'
+   expected: "\x1b[38;5;10m\x1b[49m.:\x1b[0m \x1b[38;5;226m\x1b[49m\x1b[38;5;196m\x1b[49mTest\x1b[38;5;226m\x1b[49m More\x1b[0m"
+Nested unrecognized alias:
+   input: '<ansi fg="8">For those about to <ansi fg="unrecognizedalias">Rock</ansi> we <ansi fg="15">salute</ansi> you.</ansi>'
+   expected: "\x1b[38;5;8m\x1b[49mFor those about to \x1b[38;5;8m\x1b[49mRock\x1b[38;5;8m\x1b[49m we \x1b[38;5;15m\x1b[49msalute\x1b[38;5;8m\x1b[49m you.\x1b[0m"

@@ -48,7 +48,7 @@ func TestParseAliases(t *testing.T) {
 			output := Parse(testCase.Input)
 			assert.Equal(t, testCase.Expected, output)
 
-			// fmt.Println(output)
+			//fmt.Println(output)
 			//bytes, _ := json.Marshal(output)
 			//fmt.Println(string(bytes))
 		})
@@ -105,7 +105,7 @@ func TestParseColor(t *testing.T) {
 			output := Parse(testCase.Input)
 			assert.Equal(t, testCase.Expected, output)
 
-			// fmt.Println(output)
+			//fmt.Println(output)
 			//bytes, _ := json.Marshal(output)
 			//fmt.Println(string(bytes))
 		})
@@ -124,7 +124,7 @@ func TestHtmlMode(t *testing.T) {
 			output := Parse(testCase.Input, HTML)
 			assert.Equal(t, testCase.Expected, output)
 
-			// fmt.Println(output)
+			//fmt.Println(output)
 			//bytes, _ := json.Marshal(output)
 			//fmt.Println(string(bytes))
 		})
@@ -143,7 +143,7 @@ func TestParseStripped(t *testing.T) {
 			output := Parse(testCase.Input, StripTags)
 			assert.Equal(t, testCase.Expected, output)
 
-			// fmt.Println(output)
+			//fmt.Println(output)
 			//bytes, _ := json.Marshal(output)
 			//fmt.Println(string(bytes))
 		})
@@ -162,7 +162,7 @@ func TestParseMono(t *testing.T) {
 			output := Parse(testCase.Input, Monochrome)
 			assert.Equal(t, testCase.Expected, output)
 
-			// fmt.Println(output)
+			//fmt.Println(output)
 			//bytes, _ := json.Marshal(output)
 			//fmt.Println(string(bytes))
 		})

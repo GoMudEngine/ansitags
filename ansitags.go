@@ -154,7 +154,7 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 					if stackLen > 2 {
 						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
-					} else if stackLen > 1 {
+					} else if stackLen > 1 && !writeHTML {
 						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
 					} else {
 						if writeHTML {

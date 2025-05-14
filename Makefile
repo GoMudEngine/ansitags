@@ -32,3 +32,5 @@ stream-test: build
 .PHONY: profile
 profile:
 	go test -cpuprofile cpu.prof -memprofile mem.prof -bench .
+
+

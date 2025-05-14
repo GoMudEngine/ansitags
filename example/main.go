@@ -50,6 +50,10 @@ func main() {
 	input := bufio.NewReader(os.Stdin)
 	output := bufio.NewWriterSize(os.Stdout, 1)
 
-	ansitags.ParseStreaming(input, output)
+	if os.Getenv(`HTML_MODE`) != `` {
+		ansitags.ParseStreaming(input, output, ansitags.HTML)
+	} else {
+		ansitags.ParseStreaming(input, output)
+	}
 
 }

@@ -80,9 +80,9 @@ var (
 type ansiProperties struct {
 	fg       int
 	bg       int
-	bold     bool
 	clear    int
 	position []uint16
+	bold     bool
 	htmlOnly bool
 }
 
@@ -93,6 +93,7 @@ func (p *ansiProperties) AnsiReset() string {
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 	if previous != nil {
+
 		if p.fg == defaultFg256 {
 			p.fg = previous.fg
 		}
@@ -103,18 +104,25 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 	if p.htmlOnly {
 
+		if previous != nil {
+
+			if p.fg == previous.fg && p.bg == previous.bg {
+				return `<span>`
+			}
+		}
+
 		if p.fg == defaultFg256 && p.bg == defaultBg256 {
 			return `<span>`
 		}
 
 		htmlStr := `<span style="`
 
-		if p.fg != defaultFg256 {
+		if p.fg > -1 {
 			clr := RGB(p.fg)
 			htmlStr += `color:#` + clr.Hex + `;`
 		}
 
-		if p.bg != defaultBg256 {
+		if p.bg > -1 {
 			clr := RGB(p.bg)
 			htmlStr += `background-color:#` + clr.Hex + `;`
 		}
@@ -215,7 +223,6 @@ func extractProperties(tagStr string) *ansiProperties {
 				ret.clear = val
 			}
 		}
-		//fmt.Printf("%#v = %#v\n", val[matchPosTag], val[matchPosValue])
 
 	}
 
