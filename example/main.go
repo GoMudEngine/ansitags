@@ -13,10 +13,6 @@ import (
 // accepts a string via shell pipe and processes with ansitags.Parse()
 func main() {
 
-	if os.Getenv(`COLOR_MODE`) == `256` {
-		ansitags.SetColorMode(ansitags.Color256)
-	}
-
 	modePtr := flag.String("mode", "parse", "[parse|generate]")
 	flag.Parse()
 

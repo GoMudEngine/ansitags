@@ -3,7 +3,7 @@ No Tag:
     expected: "This string has no ansi tags"
 Named Colors:
     input: "<ansi fg=black bg=\"white\">A</ansi><ansi fg=\"red\" bg=\"cyan\">B</ansi><ansi fg=\"green\" bg=\"magenta\">C</ansi><ansi fg=\"yellow\" bg=\"blue\">D</ansi><ansi fg=\"blue\" bg=\"yellow\">E</ansi><ansi fg=\"magenta\" bg=\"green\">F</ansi><ansi fg=\"cyan\" bg=\"red\">G</ansi><ansi fg=\"white\" bg=\"black\">H</ansi>"
-    expected: "\x1b[0;0mA\x1b[0m\x1b[0;0mB\x1b[0m\x1b[0;0mC\x1b[0m\x1b[0;0mD\x1b[0m\x1b[0;0mE\x1b[0m\x1b[0;0mF\x1b[0m\x1b[0;0mG\x1b[0m\x1b[0;0mH\x1b[0m"
+    expected: "\x1b[0mA\x1b[0m\x1b[0mB\x1b[0m\x1b[0mC\x1b[0m\x1b[0mD\x1b[0m\x1b[0mE\x1b[0m\x1b[0mF\x1b[0m\x1b[0mG\x1b[0m\x1b[0mH\x1b[0m"
 No Close Tag:
     input: "<ansi fg='blue'>This is inside of ansi tags"
-    expected: "\x1b[0;0mThis is inside of ansi tags\x1b[0m"
+    expected: "\x1b[0mThis is inside of ansi tags\x1b[0m"

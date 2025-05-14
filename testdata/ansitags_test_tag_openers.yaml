@@ -6,4 +6,4 @@ Non Tags:
     expected: "<this is just> some <text"
 Tags with Non Tags:
     input: "<ansi fg='blue'>This is in<side of ansi tags</ansi>"
-    expected: "\x1b[34;49mThis is in<side of ansi tags\x1b[0m"
+    expected: "\x1b[38;5;4m\x1b[49mThis is in<side of ansi tags\x1b[0m"

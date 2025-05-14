@@ -15,13 +15,6 @@ const (
 	matchPosTag   int = 1
 	matchPosValue int = 2
 
-	// special values to modify 8 bit color codes
-	fgToBgIncrement int = 10
-	boldIncrement   int = 60
-
-	defaultFg int = 39
-	defaultBg int = 49
-
 	defaultFg256 int = -2
 	defaultBg256 int = -2
 
@@ -29,10 +22,9 @@ const (
 )
 
 const (
-	// 8 bit color mode
-	Color8 ColorMode = iota
 	// 256 bit color mode
-	Color256
+	Color8Bit ColorMode = iota
+	Color24Bit
 )
 
 var (
@@ -40,20 +32,8 @@ var (
 	// regular expressions
 	propertyRegex, _ = regexp.Compile(" (bg|fg|bold|position|clear)=[\"']?([a-z0-9,_-]+)[\"']?")
 
-	// map of strings to 4 bit color codes
-	colorMap8 map[string]int = map[string]int{
-		"black":   30,
-		"red":     31,
-		"green":   32,
-		"yellow":  33,
-		"blue":    34,
-		"magenta": 35,
-		"cyan":    36,
-		"white":   37,
-	}
-
 	// map of strings to 8 bit color codes
-	colorMap256 map[string]int = map[string]int{
+	colorAliases map[string]int = map[string]int{
 		"black":        0,
 		"red":          1,
 		"green":        2,
@@ -89,7 +69,7 @@ var (
 		"scrollback":   3,
 	}
 
-	colorMode ColorMode = Color8
+	colorMode ColorMode = Color8Bit
 
 	rwLock = sync.RWMutex{}
 )
@@ -109,32 +89,11 @@ func (p *ansiProperties) AnsiReset() string {
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 	if previous != nil {
-		if colorMode == Color8 {
-			if p.fg == defaultFg {
-				p.fg = previous.fg
-			}
-			if p.bg == defaultBg {
-				p.bg = previous.bg
-			}
-			if !p.bold {
-				p.bold = previous.bold
-			}
-		} else {
-			if p.fg == defaultFg256 {
-				p.fg = previous.fg
-			}
-			if p.bg == defaultBg256 {
-				p.bg = previous.bg
-			}
+		if p.fg == defaultFg256 {
+			p.fg = previous.fg
 		}
-	}
-
-	if p.bold && colorMode == Color8 {
-		if p.fg < 90 && p.fg != defaultFg {
-			p.fg += boldIncrement
-		}
-		if p.bg < 90 && p.fg != defaultBg {
-			p.bg += boldIncrement
+		if p.bg == defaultBg256 {
+			p.bg = previous.bg
 		}
 	}
 
@@ -149,21 +108,10 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 	}
 
 	var colorCode string = ""
-	if colorMode == Color8 {
-		if p.fg > -1 || p.bg > -1 {
-			colorCode = "\033["
-			if p.fg > -1 {
-				colorCode += strconv.Itoa(p.fg)
-				if p.bg > -1 {
-					colorCode += ";" + strconv.Itoa(p.bg)
-				}
-				colorCode += "m"
-			} else {
-				colorCode += strconv.Itoa(p.bg) + "m"
-			}
-		}
-	} else {
 
+	if p.fg == defaultFg256 && p.bg == defaultBg256 {
+		colorCode = "\033[0m"
+	} else {
 		if p.fg > -1 {
 			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
 		} else if p.fg == defaultFg256 {
@@ -181,7 +129,7 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 }
 
 func SetColorMode(mode ColorMode) {
-	colorMode = mode
+	// This is a NOOP now, left for backwards compatibility
 }
 
 func AnsiResetAll() string {
@@ -190,68 +138,32 @@ func AnsiResetAll() string {
 
 func extractProperties(tagStr string) *ansiProperties {
 
-	var ret *ansiProperties
-
-	if colorMode == Color8 {
-		ret = &ansiProperties{fg: defaultFg, bg: defaultBg, clear: -1}
-	} else {
-		ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
-	}
+	var ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
 	var colorVal int
-	var aliasFound bool
+	var ok bool
 	for _, match := range result {
 
 		switch match[matchPosTag] {
 		case "fg":
 			if ret.fg, err = strconv.Atoi(match[matchPosValue]); err != nil {
 
-				if colorMode == Color8 {
-					colorVal, aliasFound = colorMap8[match[matchPosValue]]
-				} else {
-					colorVal, aliasFound = colorMap256[match[matchPosValue]]
-				}
-
-				if aliasFound {
+				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
 					ret.fg = colorVal
 				} else {
-					if colorMode == Color8 {
-						ret.fg = defaultFg
-					} else {
-						ret.fg = defaultFg256
-					}
+					ret.fg = defaultFg256
 				}
-
 			}
 		case "bg":
 			if ret.bg, err = strconv.Atoi(match[matchPosValue]); err != nil {
 
-				if colorMode == Color8 {
-					colorVal, aliasFound = colorMap8[match[matchPosValue]]
-					colorVal += 10
-				} else {
-					colorVal, aliasFound = colorMap256[match[matchPosValue]]
-				}
-
-				if aliasFound {
+				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
 					ret.bg = colorVal
 				} else {
-					if colorMode == Color8 {
-						ret.bg = defaultBg
-					} else {
-						ret.bg = defaultBg256
-					}
+					ret.bg = defaultBg256
 				}
-
-			}
-		case "bold":
-			if colorMode != Color8 {
-				continue
-			}
-			if ret.bold, err = strconv.ParseBool(match[matchPosValue]); err != nil {
-				ret.bold = false
 			}
 		case "position":
 
