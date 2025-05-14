@@ -19,6 +19,9 @@ const (
 	defaultBg256 int = -2
 
 	posMax int = 16000
+
+	ansiResetAll = "\033[0m"
+	htmlResetAll = "</span>"
 )
 
 const (
@@ -80,10 +83,11 @@ type ansiProperties struct {
 	bold     bool
 	clear    int
 	position []uint16
+	htmlOnly bool
 }
 
 func (p *ansiProperties) AnsiReset() string {
-	return "\033[39;49m"
+	return ansiResetAll
 }
 
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
@@ -95,6 +99,27 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 		if p.bg == defaultBg256 {
 			p.bg = previous.bg
 		}
+	}
+
+	if p.htmlOnly {
+
+		if p.fg == defaultFg256 && p.bg == defaultBg256 {
+			return `<span>`
+		}
+
+		htmlStr := `<span style="`
+
+		if p.fg != defaultFg256 {
+			clr := RGB(p.fg)
+			htmlStr += `color:#` + clr.Hex + `;`
+		}
+
+		if p.bg != defaultBg256 {
+			clr := RGB(p.bg)
+			htmlStr += `background-color:#` + clr.Hex + `;`
+		}
+
+		return htmlStr + `">`
 	}
 
 	var clearCode string = ""
@@ -130,10 +155,6 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 func SetColorMode(mode ColorMode) {
 	// This is a NOOP now, left for backwards compatibility
-}
-
-func AnsiResetAll() string {
-	return "\033[0m"
 }
 
 func extractProperties(tagStr string) *ansiProperties {

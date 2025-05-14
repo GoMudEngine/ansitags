@@ -21,6 +21,7 @@ const (
 
 	StripTags  ParseBehavior = iota // remove all valid ansitags
 	Monochrome                      // ignore any color changing properties
+	HTML                            // produce HTML instead of ansi tags
 )
 
 var (
@@ -49,12 +50,15 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 	var stripAllTags bool = false
 	var stripAllColor bool = false
+	var writeHTML bool = false
 
 	for _, b := range behaviors {
 		if b == StripTags {
 			stripAllTags = true
 		} else if b == Monochrome {
 			stripAllColor = true
+		} else if b == HTML {
+			writeHTML = true
 		}
 	}
 
@@ -109,6 +113,10 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 					newTag.bg = defaultBg256
 				}
 
+				if writeHTML {
+					newTag.htmlOnly = true
+				}
+
 				currentTagBuilder.Reset()
 
 				if !stripAllTags {
@@ -149,7 +157,11 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 					} else if stackLen > 1 {
 						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
 					} else {
-						outbound.WriteString(AnsiResetAll())
+						if writeHTML {
+							outbound.WriteString(htmlResetAll)
+						} else {
+							outbound.WriteString(ansiResetAll)
+						}
 					}
 
 					if stackLen > 0 {
@@ -192,7 +204,11 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 		// if there were any unclosed tags in the stream
 		if len(tagStack) > 0 {
-			outbound.WriteString(AnsiResetAll())
+			if writeHTML {
+				outbound.WriteString(htmlResetAll)
+			} else {
+				outbound.WriteString(ansiResetAll)
+			}
 		}
 	}
 

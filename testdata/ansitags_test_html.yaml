@@ -6,46 +6,46 @@ No Tag:
     expected: "This string has no ansi tags"
 Named Colors:
     input: "<ansi fg=black bg=\"white\">A</ansi><ansi fg=\"red\" bg=\"cyan\">B</ansi><ansi fg=\"green\" bg=\"magenta\">C</ansi><ansi fg=\"yellow\" bg=\"blue\">D</ansi><ansi fg=\"blue\" bg=\"yellow\">E</ansi><ansi fg=\"magenta\" bg=\"green\">F</ansi><ansi fg=\"cyan\" bg=\"red\">G</ansi><ansi fg=\"white\" bg=\"black\">H</ansi>"
-    expected: "\x1b[38;5;0m\x1b[48;5;7mA\x1b[0m\x1b[38;5;1m\x1b[48;5;6mB\x1b[0m\x1b[38;5;2m\x1b[48;5;5mC\x1b[0m\x1b[38;5;3m\x1b[48;5;4mD\x1b[0m\x1b[38;5;4m\x1b[48;5;3mE\x1b[0m\x1b[38;5;5m\x1b[48;5;2mF\x1b[0m\x1b[38;5;6m\x1b[48;5;1mG\x1b[0m\x1b[38;5;7m\x1b[48;5;0mH\x1b[0m"
+    expected: '<span style="color:#000000;background-color:#c0c0c0;">A</span><span style="color:#800000;background-color:#008080;">B</span><span style="color:#008000;background-color:#800080;">C</span><span style="color:#808000;background-color:#000080;">D</span><span style="color:#000080;background-color:#808000;">E</span><span style="color:#800080;background-color:#008000;">F</span><span style="color:#008080;background-color:#800000;">G</span><span style="color:#c0c0c0;background-color:#000000;">H</span>'
 Single Tag:
     input: "<ansi fg='blue'>This is inside of ansi tags</ansi>"
-    expected: "\x1b[38;5;4m\x1b[49mThis is inside of ansi tags\x1b[0m"
+    expected: '<span style="color:#000080;">This is inside of ansi tags</span>'
 Nested Tag:
     input: "<ansi fg=\"blue\" bg=\"green\">This is <ansi fg=\"blue\" bg=\"green\" bold=\"true\">inside</ansi> of ansi tags</ansi>"
-    expected: "\x1b[38;5;4m\x1b[48;5;2mThis is \x1b[38;5;4m\x1b[48;5;2minside\x1b[38;5;4m\x1b[48;5;2m of ansi tags\x1b[0m"
+    expected: '<span style="color:#000080;background-color:#008000;">This is <span style="color:#000080;background-color:#008000;">inside<span style="color:#000080;background-color:#008000;"> of ansi tags</span>'
 Single Tag IN normal text:
     input: "Prefix text <ansi fg=\"blue\" bg=\"black\" bold=\"true\">This is inside of ansi tags</ansi> suffix text"
-    expected: "Prefix text \x1b[38;5;4m\x1b[48;5;0mThis is inside of ansi tags\x1b[0m suffix text"
+    expected: 'Prefix text <span style="color:#000080;background-color:#000000;">This is inside of ansi tags</span> suffix text'
 Many Nested Tags:
     input: "[one]<ansi fg=\"green\" bg=\"blue\" >[two]<ansi fg=\"black\" bg=\"yellow\" >[t<ansi fg=\"green\" bg=\"magenta\">h<ansi fg=\"black\" bg=\"red\">r</ansi>e</ansi>e]</ansi>[four]</ansi>[five]"
-    expected: "[one]\x1b[38;5;2m\x1b[48;5;4m[two]\x1b[38;5;0m\x1b[48;5;3m[t\x1b[38;5;2m\x1b[48;5;5mh\x1b[38;5;0m\x1b[48;5;1mr\x1b[38;5;2m\x1b[48;5;5me\x1b[38;5;0m\x1b[48;5;3me]\x1b[38;5;2m\x1b[48;5;4m[four]\x1b[0m[five]"
+    expected: '[one]<span style="color:#008000;background-color:#000080;">[two]<span style="color:#000000;background-color:#808000;">[t<span style="color:#008000;background-color:#800080;">h<span style="color:#000000;background-color:#800000;">r<span style="color:#008000;background-color:#800080;">e<span style="color:#000000;background-color:#808000;">e]<span style="color:#008000;background-color:#000080;">[four]</span>[five]'
 Multiple sequential Tags:
     input: "start normal text <ansi fg=\"blue\" bg=\"yellow\">tagged text 1</ansi> <ansi fg=\"blue\" bg=\"107\">tagged text 2</ansi> <ansi fg=\"blue\" bg=\"yellow\" bold=\"true\">tagged text 3</ansi> end normal text"
-    expected: "start normal text \x1b[38;5;4m\x1b[48;5;3mtagged text 1\x1b[0m \x1b[38;5;4m\x1b[48;5;107mtagged text 2\x1b[0m \x1b[38;5;4m\x1b[48;5;3mtagged text 3\x1b[0m end normal text"
+    expected: 'start normal text <span style="color:#000080;background-color:#808000;">tagged text 1</span> <span style="color:#000080;background-color:#87af5f;">tagged text 2</span> <span style="color:#000080;background-color:#808000;">tagged text 3</span> end normal text'
 No Close Tag:
     input: "<ansi fg='blue'>This is inside of ansi tags"
-    expected: "\x1b[38;5;4m\x1b[49mThis is inside of ansi tags\x1b[0m"
+    expected: '<span style="color:#000080;">This is inside of ansi tags</span>'
 No Tags:
     input: "This is inside of ansi tags"
     expected: "This is inside of ansi tags"
 Unterminated Open Tag:
     input: "<ansi fg='blue'This is inside of ansi tags</ansi>"
-    expected: "\x1b[38;5;4m\x1b[49m\x1b[0m"
+    expected: '<span style="color:#000080;"></span>'
 Unterminated Open Tag and No Close Tag:
     input: "<ansi fg='blue'This is inside of ansi tags"
     expected: "<ansi fg='blue'This is inside of ansi tags"
 Leading Close Tag:
     input: "</ansi><ansi fg='blue'>This is inside of ansi tags</ansi>"
-    expected: "\x1b[0m\x1b[38;5;4m\x1b[49mThis is inside of ansi tags\x1b[0m"
+    expected: '</span><span style="color:#000080;">This is inside of ansi tags</span>'
 Crossed malformed Tags:
     input: "<ansi fg='blue' </ansi >This is inside of ansi tags>"
-    expected: "\x1b[38;5;4m\x1b[49mThis is inside of ansi tags>\x1b[0m"
+    expected: '<span style="color:#000080;">This is inside of ansi tags></span>'
 Empty tags:
     input: "<ansi>This is inside of ansi tags</ansi>"
-    expected: "\x1b[0mThis is inside of ansi tags\x1b[0m"
+    expected: '<span>This is inside of ansi tags</span>'
 Background only:
     input: "<ansi bg=\"magenta\">This is inside of ansi tags</ansi>"
-    expected: "\x1b[39m\x1b[48;5;5mThis is inside of ansi tags\x1b[0m"
+    expected: '<span style="background-color:#800080;">This is inside of ansi tags</span>'
 Invalid color strings:
    input: "<ansi fg=\"tomato\" bg=\"fish\">This is inside of ansi tags</ansi>"
-   expected: "\x1b[0mThis is inside of ansi tags\x1b[0m"
+   expected: '<span>This is inside of ansi tags</span>'

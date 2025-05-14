@@ -113,6 +113,25 @@ func TestParseColor(t *testing.T) {
 
 }
 
+func TestHtmlMode(t *testing.T) {
+
+	testTable := loadTestFile("testdata/ansitags_test_html.yaml")
+
+	for name, testCase := range testTable {
+
+		t.Run(name, func(t *testing.T) {
+
+			output := Parse(testCase.Input, HTML)
+			assert.Equal(t, testCase.Expected, output)
+
+			// fmt.Println(output)
+			//bytes, _ := json.Marshal(output)
+			//fmt.Println(string(bytes))
+		})
+	}
+
+}
+
 func TestParseStripped(t *testing.T) {
 
 	testTable := loadTestFile("testdata/ansitags_test_strip.yaml")
