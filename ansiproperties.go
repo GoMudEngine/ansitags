@@ -72,7 +72,8 @@ var (
 		"scrollback":   3,
 	}
 
-	colorMode ColorMode = Color8Bit
+	ansiFgSeq [256]string
+	ansiBgSeq [256]string
 
 	rwLock = sync.RWMutex{}
 )
@@ -82,7 +83,6 @@ type ansiProperties struct {
 	bg       int
 	clear    int
 	position []uint16
-	bold     bool
 	htmlOnly bool
 }
 
@@ -146,13 +146,13 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 		colorCode = "\033[0m"
 	} else {
 		if p.fg > -1 {
-			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
+			colorCode += ansiFgSeq[p.fg]
 		} else if p.fg == defaultFg256 {
 			colorCode += "\033[39m"
 		}
 
 		if p.bg > -1 {
-			colorCode += "\033[48;5;" + strconv.Itoa(p.bg) + `m`
+			colorCode += ansiBgSeq[p.bg]
 		} else if p.bg == defaultBg256 {
 			colorCode += "\033[49m"
 		}
@@ -227,4 +227,12 @@ func extractProperties(tagStr string) *ansiProperties {
 	}
 
 	return ret
+}
+
+// Speed up by pre-computing these values
+func init() {
+	for i := 0; i < 256; i++ {
+		ansiFgSeq[i] = "\033[38;5;" + strconv.Itoa(i) + "m"
+		ansiBgSeq[i] = "\033[48;5;" + strconv.Itoa(i) + "m"
+	}
 }

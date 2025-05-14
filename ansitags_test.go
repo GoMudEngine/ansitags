@@ -259,77 +259,14 @@ func TestSetAliasesInvalidValue(t *testing.T) {
 	}
 }
 
-//
-// Benchmarks
-// cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
-//
-/*
-//
-// BenchmarkSprintf
-// BenchmarkSprintf-16               500000               114.7 ns/op             8 B/op          1 allocs/op
-//
-func BenchmarkSprintf(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		_ = fmt.Sprintf("\033[%d;%dm", 8+60, 7)
-	}
-}
-
-//
-// BenchmarkAtoI
-// BenchmarkAtoI-16                  500000                34.44 ns/op            0 B/op          0 allocs/op
-//
-func BenchmarkAtoI(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		_ = "\033[" + strconv.Itoa(8+60) + ";" + strconv.Itoa(7) + "m"
-	}
-}
-
-//
-// BenchmarkConcat
-// BenchmarkConcat-16                500000            168857 ns/op         1403048 B/op          2 allocs/op
-//
-
-func BenchmarkConcat(b *testing.B) {
-	var sConcat string = ""
-	for n := 0; n < b.N; n++ {
-		sConcat += strconv.Itoa(n)
-	}
-}
-
-//
-// BenchmarkStringBuilder
-// BenchmarkStringBuilder-16         500000                38.46 ns/op           41 B/op          0 allocs/op
-//
-func BenchmarkStringBuilder(b *testing.B) {
-	var sBuilder strings.Builder
-	for n := 0; n < b.N; n++ {
-		sBuilder.WriteString(strconv.Itoa(n))
-	}
-}
-
-// BenchmarkParseColorString
-// BenchmarkParseColorString-16    	  617618	      1665 ns/op	     808 B/op	      16 allocs/op
-func BenchmarkParseColorString(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		Parse("This is a prefix <ansi fg=blue bg=red>This is color</ansi> This is a suffix")
-	}
-}
-
-// BenchmarkParseColorInt
-// BenchmarkParseColorInt-16    	  880810	      1393 ns/op	     712 B/op	      14 allocs/op
-func BenchmarkParseColorInt(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		Parse("This is a prefix <ansi fg='9' bg='2'>This is color</ansi> This is a suffix")
-	}
-}
-*/
-// Name                       # Run      Avg Runtime       Bytes Allocated   # of Allocat
-// BenchmarkParseStreaming-16 34398	     32720 ns/op	   14958 B/op	     297 allocs/op
+// cpu: Apple M3 Max
+// Name       		                   # Run 	     Avg Runtime       Bytes Allocated   # of Allocat
+// BenchmarkParseStreaming-14    	   39277	     29422 ns/op	   27360 B/op	     491 allocs/o
 func BenchmarkParseStreaming(b *testing.B) {
 
 	testStr := "This is text"
-	for i := 0; i < 20; i++ {
-		testStr = "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
+	for i := 0; i < 5; i++ { // heavily nested tags
+		testStr = testStr + "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
 	}
 
 	reader := strings.NewReader(testStr)
@@ -343,14 +280,30 @@ func BenchmarkParseStreaming(b *testing.B) {
 	}
 }
 
-// BenchmarkParseNew-16    	   33194	     35641 ns/op	   23330 B/op	     304 allocs/op
+// cpu: Apple M3 Max
+// Name 	                   # Run   		 Avg Runtime       Bytes Allocated   # of Allocat
+// BenchmarkParse-14    	   37892	     30006 ns/op	   33892 B/op	     497 allocs/op
 func BenchmarkParse(b *testing.B) {
 
 	testStr := "This is text"
-	for i := 0; i < 20; i++ {
-		testStr = "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
+	for i := 0; i < 5; i++ { // heavily nested tags
+		testStr = testStr + "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
 	}
 	for n := 0; n < b.N; n++ {
 		Parse(testStr)
+	}
+}
+
+// cpu: Apple M3 Max
+// Name 	                       # Run     	 Avg Runtime       Bytes Allocated   # of Allocat
+// BenchmarkParseHTML-14    	   40748	     28125 ns/op	   32295 B/op	     455 allocs/op
+func BenchmarkParseHTML(b *testing.B) {
+
+	testStr := "This is text"
+	for i := 0; i < 5; i++ { // heavily nested tags
+		testStr = testStr + "<ansi fg=black bg=\"white\">" + testStr + "</ansi>"
+	}
+	for n := 0; n < b.N; n++ {
+		Parse(testStr, HTML)
 	}
 }
