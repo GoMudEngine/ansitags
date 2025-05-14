@@ -13,10 +13,6 @@ import (
 // accepts a string via shell pipe and processes with ansitags.Parse()
 func main() {
 
-	if os.Getenv(`COLOR_MODE`) == `256` {
-		ansitags.SetColorMode(ansitags.Color256)
-	}
-
 	modePtr := flag.String("mode", "parse", "[parse|generate]")
 	flag.Parse()
 
@@ -54,6 +50,10 @@ func main() {
 	input := bufio.NewReader(os.Stdin)
 	output := bufio.NewWriterSize(os.Stdout, 1)
 
-	ansitags.ParseStreaming(input, output)
+	if os.Getenv(`HTML_MODE`) != `` {
+		ansitags.ParseStreaming(input, output, ansitags.HTML)
+	} else {
+		ansitags.ParseStreaming(input, output)
+	}
 
 }

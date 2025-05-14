@@ -21,6 +21,7 @@ const (
 
 	StripTags  ParseBehavior = iota // remove all valid ansitags
 	Monochrome                      // ignore any color changing properties
+	HTML                            // produce HTML instead of ansi tags
 )
 
 var (
@@ -49,12 +50,15 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 	var stripAllTags bool = false
 	var stripAllColor bool = false
+	var writeHTML bool = false
 
 	for _, b := range behaviors {
 		if b == StripTags {
 			stripAllTags = true
 		} else if b == Monochrome {
 			stripAllColor = true
+		} else if b == HTML {
+			writeHTML = true
 		}
 	}
 
@@ -103,9 +107,14 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 				// If this is the final closing string of the open tag
 
 				newTag := extractProperties(currentTagBuilder.String())
+
 				if stripAllColor {
-					newTag.fg = 0
-					newTag.bg = 0
+					newTag.fg = defaultFg256
+					newTag.bg = defaultBg256
+				}
+
+				if writeHTML {
+					newTag.htmlOnly = true
 				}
 
 				currentTagBuilder.Reset()
@@ -145,10 +154,14 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 					if stackLen > 2 {
 						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
-					} else if stackLen > 1 {
+					} else if stackLen > 1 && !writeHTML {
 						outbound.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
 					} else {
-						outbound.WriteString(AnsiResetAll())
+						if writeHTML {
+							outbound.WriteString(htmlResetAll)
+						} else {
+							outbound.WriteString(ansiResetAll)
+						}
 					}
 
 					if stackLen > 0 {
@@ -191,14 +204,18 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 		// if there were any unclosed tags in the stream
 		if len(tagStack) > 0 {
-			outbound.WriteString(AnsiResetAll())
+			if writeHTML {
+				outbound.WriteString(htmlResetAll)
+			} else {
+				outbound.WriteString(ansiResetAll)
+			}
 		}
 	}
 
 	outbound.Flush()
 }
 
-func SetAlias(alias string, value int, aliasGroup ...string) error {
+func SetAlias(alias string, value int) error {
 
 	rwLock.Lock()
 	defer rwLock.Unlock()
@@ -207,44 +224,22 @@ func SetAlias(alias string, value int, aliasGroup ...string) error {
 		return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
 	}
 
-	g := `color256`
-	if len(aliasGroup) > 0 {
-		if aliasGroup[0] == `color8` {
-			g = `color8`
-		}
-	}
-
-	if g == "color8" {
-		colorMap8[alias] = value
-	} else {
-		colorMap256[alias] = value
-	}
+	colorAliases[alias] = value
 
 	return nil
 }
 
-func SetAliases(aliases map[string]int, aliasGroup ...string) error {
+func SetAliases(aliases map[string]int) error {
 
 	rwLock.Lock()
 	defer rwLock.Unlock()
-
-	g := `color256`
-	if len(aliasGroup) > 0 {
-		if aliasGroup[0] == `color8` {
-			g = `color8`
-		}
-	}
 
 	for alias, value := range aliases {
 		if value < 0 || value > 255 {
 			return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
 		}
 
-		if g == "color8" {
-			colorMap8[alias] = value
-		} else {
-			colorMap256[alias] = value
-		}
+		colorAliases[alias] = value
 	}
 
 	return nil
@@ -269,30 +264,35 @@ func LoadAliases(yamlFilePaths ...string) error {
 
 		for aliasGroup, aliases := range data {
 
-			if aliasGroup == "color8" {
-				for alias, real := range aliases {
-					// try mapping to an existing color alias
-					if val, ok := colorMap8[real]; ok {
-						colorMap8[alias] = val
-					} else {
-						// allow a numeric mapping
-						if numVal, err := strconv.Atoi(real); err == nil {
-							colorMap8[alias] = numVal
-						}
-					}
-				}
-			}
+			if aliasGroup == "colors" || aliasGroup == "color256" {
 
-			if aliasGroup == "color256" {
+				aliasToAlias := map[string]string{}
+
 				for alias, real := range aliases {
-					// try mapping to an existing color alias
-					if val, ok := colorMap256[real]; ok {
-						colorMap256[alias] = val
+
+					// If a number value supplied, map it
+					if numVal, err := strconv.Atoi(real); err == nil {
+
+						colorAliases[alias] = numVal
+
 					} else {
-						// allow a numeric mapping
-						if numVal, err := strconv.Atoi(real); err == nil {
-							colorMap256[alias] = numVal
-						}
+
+						// If it's a string value, this is allowed if the string is already defined as an alias
+						// Save these for a second pass after all numeric aliases have been assigned.
+						// example:
+						// red: 9
+						// bloody: red
+						aliasToAlias[alias] = real
+					}
+
+				}
+
+				// Second loop to process alias-to-alias maps
+				for alias, otherAlias := range aliasToAlias {
+					// Only accept if the otherAlias exists
+					// If so, map it
+					if val, ok := colorAliases[otherAlias]; ok {
+						colorAliases[alias] = val
 					}
 				}
 			}

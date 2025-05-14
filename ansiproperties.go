@@ -15,24 +15,19 @@ const (
 	matchPosTag   int = 1
 	matchPosValue int = 2
 
-	// special values to modify 8 bit color codes
-	fgToBgIncrement int = 10
-	boldIncrement   int = 60
-
-	defaultFg int = 39
-	defaultBg int = 49
-
 	defaultFg256 int = -2
 	defaultBg256 int = -2
 
 	posMax int = 16000
+
+	ansiResetAll = "\033[0m"
+	htmlResetAll = "</span>"
 )
 
 const (
-	// 8 bit color mode
-	Color8 ColorMode = iota
 	// 256 bit color mode
-	Color256
+	Color8Bit ColorMode = iota
+	Color24Bit
 )
 
 var (
@@ -40,20 +35,8 @@ var (
 	// regular expressions
 	propertyRegex, _ = regexp.Compile(" (bg|fg|bold|position|clear)=[\"']?([a-z0-9,_-]+)[\"']?")
 
-	// map of strings to 4 bit color codes
-	colorMap8 map[string]int = map[string]int{
-		"black":   30,
-		"red":     31,
-		"green":   32,
-		"yellow":  33,
-		"blue":    34,
-		"magenta": 35,
-		"cyan":    36,
-		"white":   37,
-	}
-
 	// map of strings to 8 bit color codes
-	colorMap256 map[string]int = map[string]int{
+	colorAliases map[string]int = map[string]int{
 		"black":        0,
 		"red":          1,
 		"green":        2,
@@ -89,7 +72,8 @@ var (
 		"scrollback":   3,
 	}
 
-	colorMode ColorMode = Color8
+	ansiFgSeq [256]string
+	ansiBgSeq [256]string
 
 	rwLock = sync.RWMutex{}
 )
@@ -97,45 +81,53 @@ var (
 type ansiProperties struct {
 	fg       int
 	bg       int
-	bold     bool
 	clear    int
 	position []uint16
+	htmlOnly bool
 }
 
 func (p *ansiProperties) AnsiReset() string {
-	return "\033[39;49m"
+	return ansiResetAll
 }
 
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
 	if previous != nil {
-		if colorMode == Color8 {
-			if p.fg == defaultFg {
-				p.fg = previous.fg
-			}
-			if p.bg == defaultBg {
-				p.bg = previous.bg
-			}
-			if !p.bold {
-				p.bold = previous.bold
-			}
-		} else {
-			if p.fg == defaultFg256 {
-				p.fg = previous.fg
-			}
-			if p.bg == defaultBg256 {
-				p.bg = previous.bg
-			}
+
+		if p.fg == defaultFg256 {
+			p.fg = previous.fg
+		}
+		if p.bg == defaultBg256 {
+			p.bg = previous.bg
 		}
 	}
 
-	if p.bold && colorMode == Color8 {
-		if p.fg < 90 && p.fg != defaultFg {
-			p.fg += boldIncrement
+	if p.htmlOnly {
+
+		if previous != nil {
+
+			if p.fg == previous.fg && p.bg == previous.bg {
+				return `<span>`
+			}
 		}
-		if p.bg < 90 && p.fg != defaultBg {
-			p.bg += boldIncrement
+
+		if p.fg == defaultFg256 && p.bg == defaultBg256 {
+			return `<span>`
 		}
+
+		htmlStr := `<span style="`
+
+		if p.fg > -1 {
+			clr := RGB(p.fg)
+			htmlStr += `color:#` + clr.Hex + `;`
+		}
+
+		if p.bg > -1 {
+			clr := RGB(p.bg)
+			htmlStr += `background-color:#` + clr.Hex + `;`
+		}
+
+		return htmlStr + `">`
 	}
 
 	var clearCode string = ""
@@ -149,29 +141,18 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 	}
 
 	var colorCode string = ""
-	if colorMode == Color8 {
-		if p.fg > -1 || p.bg > -1 {
-			colorCode = "\033["
-			if p.fg > -1 {
-				colorCode += strconv.Itoa(p.fg)
-				if p.bg > -1 {
-					colorCode += ";" + strconv.Itoa(p.bg)
-				}
-				colorCode += "m"
-			} else {
-				colorCode += strconv.Itoa(p.bg) + "m"
-			}
-		}
-	} else {
 
+	if p.fg == defaultFg256 && p.bg == defaultBg256 {
+		colorCode = "\033[0m"
+	} else {
 		if p.fg > -1 {
-			colorCode += "\033[38;5;" + strconv.Itoa(p.fg) + `m`
+			colorCode += ansiFgSeq[p.fg]
 		} else if p.fg == defaultFg256 {
 			colorCode += "\033[39m"
 		}
 
 		if p.bg > -1 {
-			colorCode += "\033[48;5;" + strconv.Itoa(p.bg) + `m`
+			colorCode += ansiBgSeq[p.bg]
 		} else if p.bg == defaultBg256 {
 			colorCode += "\033[49m"
 		}
@@ -181,77 +162,37 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 }
 
 func SetColorMode(mode ColorMode) {
-	colorMode = mode
-}
-
-func AnsiResetAll() string {
-	return "\033[0m"
+	// This is a NOOP now, left for backwards compatibility
 }
 
 func extractProperties(tagStr string) *ansiProperties {
 
-	var ret *ansiProperties
-
-	if colorMode == Color8 {
-		ret = &ansiProperties{fg: defaultFg, bg: defaultBg, clear: -1}
-	} else {
-		ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
-	}
+	var ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
 
 	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
 	var err error
 	var colorVal int
-	var aliasFound bool
+	var ok bool
 	for _, match := range result {
 
 		switch match[matchPosTag] {
 		case "fg":
 			if ret.fg, err = strconv.Atoi(match[matchPosValue]); err != nil {
 
-				if colorMode == Color8 {
-					colorVal, aliasFound = colorMap8[match[matchPosValue]]
-				} else {
-					colorVal, aliasFound = colorMap256[match[matchPosValue]]
-				}
-
-				if aliasFound {
+				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
 					ret.fg = colorVal
 				} else {
-					if colorMode == Color8 {
-						ret.fg = defaultFg
-					} else {
-						ret.fg = defaultFg256
-					}
+					ret.fg = defaultFg256
 				}
-
 			}
 		case "bg":
 			if ret.bg, err = strconv.Atoi(match[matchPosValue]); err != nil {
 
-				if colorMode == Color8 {
-					colorVal, aliasFound = colorMap8[match[matchPosValue]]
-					colorVal += 10
-				} else {
-					colorVal, aliasFound = colorMap256[match[matchPosValue]]
-				}
-
-				if aliasFound {
+				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
 					ret.bg = colorVal
 				} else {
-					if colorMode == Color8 {
-						ret.bg = defaultBg
-					} else {
-						ret.bg = defaultBg256
-					}
+					ret.bg = defaultBg256
 				}
-
-			}
-		case "bold":
-			if colorMode != Color8 {
-				continue
-			}
-			if ret.bold, err = strconv.ParseBool(match[matchPosValue]); err != nil {
-				ret.bold = false
 			}
 		case "position":
 
@@ -282,9 +223,16 @@ func extractProperties(tagStr string) *ansiProperties {
 				ret.clear = val
 			}
 		}
-		//fmt.Printf("%#v = %#v\n", val[matchPosTag], val[matchPosValue])
 
 	}
 
 	return ret
+}
+
+// Speed up by pre-computing these values
+func init() {
+	for i := 0; i < 256; i++ {
+		ansiFgSeq[i] = "\033[38;5;" + strconv.Itoa(i) + "m"
+		ansiBgSeq[i] = "\033[48;5;" + strconv.Itoa(i) + "m"
+	}
 }

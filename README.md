@@ -3,8 +3,6 @@
 - [ansitags](#ansitags)
   - [Overview](#overview)
   - [Quick Start](#quick-start)
-  - [Future plans (Short term)](#future-plans-short-term)
-  - [Future plans (Long term)](#future-plans-long-term)
 
 ## Overview
 
@@ -30,17 +28,3 @@ Result:
 
 ![alt text](https://user-images.githubusercontent.com/143822/185706504-99d32ed5-37cc-4266-b682-c74b719e4790.png)
 
-Note: You can switch between 256 color mode and 8 color mode (The default is 8):
-
-    ansitags.SetColorMode(ansitags.Color8)
-    ansitags.SetColorMode(ansitags.Color256)
-
-
-## Future plans (Short term)
-
-- CSI sequence support such as cursor position
-
-## Future plans (Long term)
-
-- Stripping out color codes / tags from strings
-- Generating color-styled HTML from color codes / tags
