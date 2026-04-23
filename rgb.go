@@ -81,4 +81,11 @@ func init() {
 		gray := uint8(8 + (i-232)*10)
 		ansi256[i] = newRGB(gray, gray, gray)
 	}
+
+	// Pre-compute HTML color style fragments used by PropagateAnsiCode in HTML mode.
+	for i := 0; i < 256; i++ {
+		clr := ansi256[i]
+		htmlFgStyle[i] = "color:#" + clr.Hex + ";"
+		htmlBgStyle[i] = "background-color:#" + clr.Hex + ";"
+	}
 }

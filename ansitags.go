@@ -22,6 +22,10 @@ const (
 	StripTags  ParseBehavior = iota // remove all valid ansitags
 	Monochrome                      // ignore any color changing properties
 	HTML                            // produce HTML instead of ansi tags
+
+	// maxTagSize is the maximum byte length of a tag we will accumulate.
+	// Tags longer than this cannot be valid, so we flush and reset.
+	maxTagSize = 256
 )
 
 var (
@@ -34,13 +38,182 @@ var (
 
 func Parse(str string, behaviors ...ParseBehavior) string {
 
-	input := bufio.NewReader(strings.NewReader(str))
-
 	var outputBuffer bytes.Buffer
-	output := bufio.NewWriter(&outputBuffer)
-	ParseStreaming(input, output, behaviors...)
-
+	outputBuffer.Grow(len(str))
+	parseString(str, &outputBuffer, behaviors...)
 	return outputBuffer.String()
+}
+
+// parseString is the core implementation for string input, avoiding bufio overhead.
+func parseString(str string, out *bytes.Buffer, behaviors ...ParseBehavior) {
+
+	rwLock.RLock()
+	defer rwLock.RUnlock()
+
+	var stripAllTags bool
+	var stripAllColor bool
+	var writeHTML bool
+
+	for _, b := range behaviors {
+		switch b {
+		case StripTags:
+			stripAllTags = true
+		case Monochrome:
+			stripAllColor = true
+		case HTML:
+			writeHTML = true
+		}
+	}
+
+	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
+
+	// Fixed-size tag accumulation buffer — avoids heap allocation for the common case.
+	var tagBuf [maxTagSize]byte
+	var tagLen int
+
+	openMatcher := NewTagMatcher(tagStart, []byte(tagOpen), tagEnd, true)
+	closeMatcher := NewTagMatcher(tagStart, []byte(tagClose), tagEnd, false)
+
+	var mode parseMode = parseModeNone
+
+	for i := 0; i < len(str); i++ {
+		input := str[i]
+
+		if mode == parseModeNone {
+			if input != tagStart {
+				out.WriteByte(input)
+				continue
+			}
+			mode = parseModeMatching
+		}
+
+		if mode == parseModeMatching {
+
+			openMatch, openMatchDone := openMatcher.MatchNext(input)
+			closeMatch, closeMatchDone := closeMatcher.MatchNext(input)
+
+			if openMatch {
+
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
+
+				if !openMatchDone {
+					continue
+				}
+
+				newTag := extractProperties(string(tagBuf[:tagLen]))
+
+				if stripAllColor {
+					newTag.fg = defaultFg256
+					newTag.bg = defaultBg256
+				}
+
+				if writeHTML {
+					newTag.htmlOnly = true
+				}
+
+				tagLen = 0
+
+				if !stripAllTags {
+					stackLen := len(tagStack)
+					if stackLen > 0 {
+						out.WriteString(newTag.PropagateAnsiCode(tagStack[stackLen-1]))
+					} else {
+						out.WriteString(newTag.PropagateAnsiCode(nil))
+					}
+					tagStack = append(tagStack, newTag)
+				} else {
+					releaseProperties(newTag)
+				}
+
+				mode = parseModeNone
+				openMatcher.Reset()
+				closeMatcher.Reset()
+				continue
+			}
+			openMatcher.Reset()
+
+			if closeMatch {
+
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
+
+				if !closeMatchDone {
+					continue
+				}
+
+				tagLen = 0
+				if !stripAllTags {
+					stackLen := len(tagStack)
+
+					if stackLen > 2 {
+						out.WriteString(tagStack[stackLen-2].PropagateAnsiCode(tagStack[stackLen-3]))
+					} else if stackLen > 1 {
+						out.WriteString(tagStack[stackLen-2].PropagateAnsiCode(nil))
+					} else {
+						if writeHTML {
+							out.WriteString(htmlResetAll)
+						} else {
+							out.WriteString(ansiResetAll)
+						}
+					}
+
+					if stackLen > 0 {
+						releaseProperties(tagStack[stackLen-1])
+						tagStack[stackLen-1] = nil
+						tagStack = tagStack[:stackLen-1]
+					}
+				}
+
+				mode = parseModeNone
+				openMatcher.Reset()
+				closeMatcher.Reset()
+				continue
+			}
+			closeMatcher.Reset()
+
+			if closeMatchDone && openMatchDone {
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
+			}
+
+			mode = parseModeNone
+
+			if !stripAllTags {
+				out.Write(tagBuf[:tagLen])
+			}
+			tagLen = 0
+			continue
+		}
+	}
+
+	if !stripAllTags {
+		if tagLen > 0 {
+			out.Write(tagBuf[:tagLen])
+			tagLen = 0
+		}
+
+		if len(tagStack) > 0 {
+			if writeHTML {
+				out.WriteString(htmlResetAll)
+			} else {
+				out.WriteString(ansiResetAll)
+			}
+		}
+	}
+
+	// Release any remaining pooled properties
+	for _, p := range tagStack {
+		if p != nil {
+			releaseProperties(p)
+		}
+	}
 }
 
 func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...ParseBehavior) {
@@ -48,23 +221,25 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 	rwLock.RLock()
 	defer rwLock.RUnlock()
 
-	var stripAllTags bool = false
-	var stripAllColor bool = false
-	var writeHTML bool = false
+	var stripAllTags bool
+	var stripAllColor bool
+	var writeHTML bool
 
 	for _, b := range behaviors {
-		if b == StripTags {
+		switch b {
+		case StripTags:
 			stripAllTags = true
-		} else if b == Monochrome {
+		case Monochrome:
 			stripAllColor = true
-		} else if b == HTML {
+		case HTML:
 			writeHTML = true
 		}
 	}
 
 	var tagStack []*ansiProperties = make([]*ansiProperties, 0, 5)
 
-	var currentTagBuilder strings.Builder
+	var tagBuf [maxTagSize]byte
+	var tagLen int
 
 	openMatcher := NewTagMatcher(tagStart, []byte(tagOpen), tagEnd, true)
 	closeMatcher := NewTagMatcher(tagStart, []byte(tagClose), tagEnd, false)
@@ -78,20 +253,14 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 			break
 		}
 
-		// If not currently in any modes, look for any tags
 		if mode == parseModeNone {
 			if input != tagStart {
-				// If it's not an opening tag and we're looking for it (zero position)
-				// Write it to the output string and go to next
 				outbound.WriteByte(input)
 				continue
 			}
-
-			// Since the input is a starting tag, switch to a matching mode
 			mode = parseModeMatching
 		}
 
-		// if attempting to match a tag
 		if mode == parseModeMatching {
 
 			openMatch, openMatchDone := openMatcher.MatchNext(input)
@@ -99,14 +268,16 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 
 			if openMatch {
 
-				currentTagBuilder.WriteByte(input)
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
 
 				if !openMatchDone {
 					continue
 				}
-				// If this is the final closing string of the open tag
 
-				newTag := extractProperties(currentTagBuilder.String())
+				newTag := extractProperties(string(tagBuf[:tagLen]))
 
 				if stripAllColor {
 					newTag.fg = defaultFg256
@@ -117,7 +288,7 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 					newTag.htmlOnly = true
 				}
 
-				currentTagBuilder.Reset()
+				tagLen = 0
 
 				if !stripAllTags {
 					stackLen := len(tagStack)
@@ -127,29 +298,30 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 						outbound.WriteString(newTag.PropagateAnsiCode(nil))
 					}
 					tagStack = append(tagStack, newTag)
+				} else {
+					releaseProperties(newTag)
 				}
 
-				// reset matchers
 				mode = parseModeNone
 				openMatcher.Reset()
 				closeMatcher.Reset()
 				continue
-
 			}
-			// No open match was found. Reset the matcher
 			openMatcher.Reset()
 
 			if closeMatch {
 
-				currentTagBuilder.WriteByte(input)
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
 
 				if !closeMatchDone {
 					continue
 				}
 
-				currentTagBuilder.Reset()
+				tagLen = 0
 				if !stripAllTags {
-					// we're already at the end, we can parse it.
 					stackLen := len(tagStack)
 
 					if stackLen > 2 {
@@ -165,50 +337,54 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 					}
 
 					if stackLen > 0 {
-						tagStack[len(tagStack)-1] = nil
-						tagStack = tagStack[0 : len(tagStack)-1]
+						releaseProperties(tagStack[stackLen-1])
+						tagStack[stackLen-1] = nil
+						tagStack = tagStack[:stackLen-1]
 					}
 				}
 
-				// reset matchers
 				mode = parseModeNone
 				openMatcher.Reset()
 				closeMatcher.Reset()
 				continue
-
 			}
-			// No close match was found. Reset the matcher
 			closeMatcher.Reset()
 
 			if closeMatchDone && openMatchDone {
-				currentTagBuilder.WriteByte(input)
+				if tagLen < maxTagSize {
+					tagBuf[tagLen] = input
+					tagLen++
+				}
 			}
 
-			// open and close both failed to match. Reset everything
 			mode = parseModeNone
 
 			if !stripAllTags {
-				outbound.WriteString(currentTagBuilder.String())
+				outbound.Write(tagBuf[:tagLen])
 			}
-			currentTagBuilder.Reset()
+			tagLen = 0
 			continue
 		}
-
 	}
 
 	if !stripAllTags {
-		if currentTagBuilder.Len() > 0 {
-			outbound.WriteString(currentTagBuilder.String())
-			currentTagBuilder.Reset()
+		if tagLen > 0 {
+			outbound.Write(tagBuf[:tagLen])
+			tagLen = 0
 		}
 
-		// if there were any unclosed tags in the stream
 		if len(tagStack) > 0 {
 			if writeHTML {
 				outbound.WriteString(htmlResetAll)
 			} else {
 				outbound.WriteString(ansiResetAll)
 			}
+		}
+	}
+
+	for _, p := range tagStack {
+		if p != nil {
+			releaseProperties(p)
 		}
 	}
 
@@ -224,7 +400,13 @@ func SetAlias(alias string, value int) error {
 		return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
 	}
 
-	colorAliases[alias] = value
+	newMap := make(map[string]int, len(colorAliases)+1)
+	for k, v := range colorAliases {
+		newMap[k] = v
+	}
+	newMap[alias] = value
+	colorAliases = newMap
+	storeAliasSnapshot(colorAliases)
 
 	return nil
 }
@@ -238,9 +420,17 @@ func SetAliases(aliases map[string]int) error {
 		if value < 0 || value > 255 {
 			return fmt.Errorf(`value "%d" out of allowable range for alias "%s"`, value, alias)
 		}
-
-		colorAliases[alias] = value
 	}
+
+	newMap := make(map[string]int, len(colorAliases)+len(aliases))
+	for k, v := range colorAliases {
+		newMap[k] = v
+	}
+	for alias, value := range aliases {
+		newMap[alias] = value
+	}
+	colorAliases = newMap
+	storeAliasSnapshot(colorAliases)
 
 	return nil
 }
@@ -251,6 +441,11 @@ func LoadAliases(yamlFilePaths ...string) error {
 	defer rwLock.Unlock()
 
 	data := make(map[string]map[string]string, 100)
+
+	newMap := make(map[string]int, len(colorAliases))
+	for k, v := range colorAliases {
+		newMap[k] = v
+	}
 
 	for _, yamlFilePath := range yamlFilePaths {
 
@@ -270,29 +465,20 @@ func LoadAliases(yamlFilePaths ...string) error {
 
 				for alias, real := range aliases {
 
-					// If a number value supplied, map it
 					if numVal, err := strconv.Atoi(real); err == nil {
 
-						colorAliases[alias] = numVal
+						newMap[alias] = numVal
 
 					} else {
 
-						// If it's a string value, this is allowed if the string is already defined as an alias
-						// Save these for a second pass after all numeric aliases have been assigned.
-						// example:
-						// red: 9
-						// bloody: red
 						aliasToAlias[alias] = real
 					}
 
 				}
 
-				// Second loop to process alias-to-alias maps
 				for alias, otherAlias := range aliasToAlias {
-					// Only accept if the otherAlias exists
-					// If so, map it
-					if val, ok := colorAliases[otherAlias]; ok {
-						colorAliases[alias] = val
+					if val, ok := newMap[otherAlias]; ok {
+						newMap[alias] = val
 					}
 				}
 			}
@@ -308,6 +494,9 @@ func LoadAliases(yamlFilePaths ...string) error {
 
 		}
 	}
+
+	colorAliases = newMap
+	storeAliasSnapshot(colorAliases)
 
 	return nil
 }

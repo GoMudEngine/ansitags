@@ -1,20 +1,15 @@
 package ansitags
 
 import (
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
 type ColorMode uint8
 
 const (
-	// regex result data indices
-	matchPosFull  int = 0
-	matchPosTag   int = 1
-	matchPosValue int = 2
-
 	defaultFg256 int = -2
 	defaultBg256 int = -2
 
@@ -31,12 +26,8 @@ const (
 )
 
 var (
-
-	// regular expressions
-	propertyRegex, _ = regexp.Compile(" (bg|fg|bold|position|clear)=[\"']?([a-z0-9,_-]+)[\"']?")
-
-	// map of strings to 8 bit color codes
-	colorAliases map[string]int = map[string]int{
+	// map of strings to 8 bit color codes — accessed via atomic pointer for lock-free reads
+	defaultColorAliases = map[string]int{
 		"black":        0,
 		"red":          1,
 		"green":        2,
@@ -55,8 +46,11 @@ var (
 		"white-bold":   15,
 	}
 
+	// atomicAliases holds a *aliasSnapshot; readers load it without any lock.
+	atomicAliases unsafe.Pointer
+
 	positionMap map[string][]string = map[string][]string{
-		"topleft": []string{"1", "1"},
+		"topleft": {"1", "1"},
 	}
 
 	// \033[xJ
@@ -75,8 +69,33 @@ var (
 	ansiFgSeq [256]string
 	ansiBgSeq [256]string
 
+	// Pre-computed HTML color style fragments, e.g. "color:#ff0000;"
+	htmlFgStyle [256]string
+	htmlBgStyle [256]string
+
 	rwLock = sync.RWMutex{}
 )
+
+// aliasSnapshot is an immutable copy of colorAliases used for lock-free reads.
+type aliasSnapshot struct {
+	m map[string]int
+}
+
+// loadAliasSnapshot returns the current alias map without acquiring any lock.
+func loadAliasSnapshot() map[string]int {
+	p := atomic.LoadPointer(&atomicAliases)
+	return (*aliasSnapshot)(p).m
+}
+
+// storeAliasSnapshot replaces the alias map atomically. Must be called under rwLock.
+func storeAliasSnapshot(m map[string]int) {
+	snap := &aliasSnapshot{m: m}
+	atomic.StorePointer(&atomicAliases, unsafe.Pointer(snap))
+}
+
+// colorAliases is the mutable backing map, written only under rwLock.Write.
+// Readers always go through loadAliasSnapshot().
+var colorAliases map[string]int
 
 type ansiProperties struct {
 	fg       int
@@ -84,6 +103,27 @@ type ansiProperties struct {
 	clear    int
 	position []uint16
 	htmlOnly bool
+}
+
+// propertiesPool recycles ansiProperties to reduce heap allocations.
+var propertiesPool = sync.Pool{
+	New: func() any {
+		return &ansiProperties{}
+	},
+}
+
+func acquireProperties() *ansiProperties {
+	p := propertiesPool.Get().(*ansiProperties)
+	p.fg = defaultFg256
+	p.bg = defaultBg256
+	p.clear = -1
+	p.position = p.position[:0]
+	p.htmlOnly = false
+	return p
+}
+
+func releaseProperties(p *ansiProperties) {
+	propertiesPool.Put(p)
 }
 
 func (p *ansiProperties) AnsiReset() string {
@@ -118,19 +158,16 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 			return `<span>`
 		}
 
-		htmlStr := `<span style="`
-
+		if p.fg > -1 && p.bg > -1 {
+			return `<span style="` + htmlFgStyle[p.fg] + htmlBgStyle[p.bg] + `">`
+		}
 		if p.fg > -1 {
-			clr := RGB(p.fg)
-			htmlStr += `color:#` + clr.Hex + `;`
+			return `<span style="` + htmlFgStyle[p.fg] + `">`
 		}
-
 		if p.bg > -1 {
-			clr := RGB(p.bg)
-			htmlStr += `background-color:#` + clr.Hex + `;`
+			return `<span style="` + htmlBgStyle[p.bg] + `">`
 		}
-
-		return htmlStr + `">`
+		return `<span>`
 	}
 
 	var clearCode string = ""
@@ -168,65 +205,111 @@ func SetColorMode(mode ColorMode) {
 	// This is a NOOP now, left for backwards compatibility
 }
 
+// extractProperties parses an open tag string like `<ansi fg=red bg="0" >` and
+// returns a populated ansiProperties. The caller is responsible for releasing
+// the returned pointer via releaseProperties when it is no longer needed.
 func extractProperties(tagStr string) *ansiProperties {
 
-	var ret = &ansiProperties{fg: defaultFg256, bg: defaultBg256, clear: -1}
+	ret := acquireProperties()
 
-	result := propertyRegex.FindAllStringSubmatch(tagStr, -1)
-	var err error
-	var colorVal int
-	var ok bool
-	for _, match := range result {
+	aliases := loadAliasSnapshot()
 
-		switch match[matchPosTag] {
+	i := 0
+	n := len(tagStr)
+
+	for i < n {
+		// Skip until we find a space (attribute separator)
+		if tagStr[i] != ' ' {
+			i++
+			continue
+		}
+		i++ // consume the space
+
+		// Read the key (runs until '=')
+		keyStart := i
+		for i < n && tagStr[i] != '=' {
+			i++
+		}
+		if i >= n {
+			break
+		}
+		key := tagStr[keyStart:i]
+		i++ // consume '='
+
+		// Read the value, optionally quoted with ' or "
+		if i >= n {
+			break
+		}
+		var quote byte
+		if tagStr[i] == '\'' || tagStr[i] == '"' {
+			quote = tagStr[i]
+			i++
+		}
+		valStart := i
+		if quote != 0 {
+			for i < n && tagStr[i] != quote {
+				i++
+			}
+		} else {
+			for i < n && tagStr[i] != ' ' && tagStr[i] != '>' {
+				i++
+			}
+		}
+		val := tagStr[valStart:i]
+		if quote != 0 && i < n {
+			i++ // consume closing quote
+		}
+
+		if len(val) == 0 {
+			continue
+		}
+
+		switch key {
 		case "fg":
-			if ret.fg, err = strconv.Atoi(match[matchPosValue]); err != nil {
-
-				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
-					ret.fg = colorVal
-				} else {
-					ret.fg = defaultFg256
-				}
+			if num, err := strconv.Atoi(val); err == nil {
+				ret.fg = num
+			} else if colorVal, ok := aliases[val]; ok {
+				ret.fg = colorVal
+			} else {
+				ret.fg = defaultFg256
 			}
 		case "bg":
-			if ret.bg, err = strconv.Atoi(match[matchPosValue]); err != nil {
-
-				if colorVal, ok = colorAliases[match[matchPosValue]]; ok {
-					ret.bg = colorVal
-				} else {
-					ret.bg = defaultBg256
-				}
+			if num, err := strconv.Atoi(val); err == nil {
+				ret.bg = num
+			} else if colorVal, ok := aliases[val]; ok {
+				ret.bg = colorVal
+			} else {
+				ret.bg = defaultBg256
 			}
 		case "position":
-
 			var posArr []string
-
-			if val, ok := positionMap[match[matchPosValue]]; ok {
-				posArr = val
+			if mapped, ok := positionMap[val]; ok {
+				posArr = mapped
 			} else {
-				posArr = strings.Split(match[matchPosValue], ",")
+				// split on comma inline to avoid allocating a slice via strings.Split
+				comma := -1
+				for ci := 0; ci < len(val); ci++ {
+					if val[ci] == ',' {
+						comma = ci
+						break
+					}
+				}
+				if comma > 0 {
+					posArr = []string{val[:comma], val[comma+1:]}
+				}
 			}
-
 			if len(posArr) == 2 {
-				yPos := -1
-				xPos := -1
-				if xPos, err = strconv.Atoi(posArr[0]); err != nil {
-					continue
-				}
-				if yPos, err = strconv.Atoi(posArr[1]); err != nil {
-					continue
-				}
-
-				if xPos > -1 && yPos > -1 && xPos <= posMax && yPos <= posMax {
-					ret.position = []uint16{uint16(xPos), uint16(yPos)}
+				xPos, xErr := strconv.Atoi(posArr[0])
+				yPos, yErr := strconv.Atoi(posArr[1])
+				if xErr == nil && yErr == nil && xPos > -1 && yPos > -1 && xPos <= posMax && yPos <= posMax {
+					ret.position = append(ret.position[:0], uint16(xPos), uint16(yPos))
 				}
 			}
 		case "clear":
-			if val, ok := clearMap[match[matchPosValue]]; ok {
+			if val, ok := clearMap[val]; ok {
 				ret.clear = val
 			}
 		}
-
 	}
 
 	return ret
@@ -234,6 +317,13 @@ func extractProperties(tagStr string) *ansiProperties {
 
 // Speed up by pre-computing these values
 func init() {
+	// Seed colorAliases and the atomic snapshot
+	colorAliases = make(map[string]int, len(defaultColorAliases))
+	for k, v := range defaultColorAliases {
+		colorAliases[k] = v
+	}
+	storeAliasSnapshot(colorAliases)
+
 	for i := 0; i < 256; i++ {
 		ansiFgSeq[i] = "\033[38;5;" + strconv.Itoa(i) + "m"
 		ansiBgSeq[i] = "\033[48;5;" + strconv.Itoa(i) + "m"
