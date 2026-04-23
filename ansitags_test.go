@@ -246,6 +246,36 @@ func TestSetAliasesValidDefaultGroup(t *testing.T) {
 	}
 }
 
+func TestGetAliases(t *testing.T) {
+	// Default aliases should all be present as int values
+	aliases := GetAliases()
+	for name, num := range defaultColorAliases {
+		got, ok := aliases[name]
+		if !ok {
+			t.Errorf("GetAliases() missing default alias %q", name)
+			continue
+		}
+		if got != num {
+			t.Errorf("GetAliases()[%q] = %v; want %d", name, got, num)
+		}
+	}
+
+	// Adding an alias via SetAlias should be reflected
+	if err := SetAlias("getaliases-test", 42); err != nil {
+		t.Fatalf("SetAlias returned unexpected error: %v", err)
+	}
+	aliases = GetAliases()
+	if got, ok := aliases["getaliases-test"]; !ok || got != 42 {
+		t.Errorf("GetAliases()[%q] = %v, ok=%v; want %d, true", "getaliases-test", got, ok, 42)
+	}
+
+	// GetAliases must return a copy — mutations must not affect internal state
+	aliases["getaliases-test"] = 999
+	if got := GetAliases()["getaliases-test"]; got != 42 {
+		t.Errorf("mutating returned map affected internal state: got %v, want %d", got, 42)
+	}
+}
+
 func TestSetAliasesInvalidValue(t *testing.T) {
 	aliases := map[string]int{
 		"badAlias1": -1,

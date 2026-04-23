@@ -391,6 +391,15 @@ func ParseStreaming(inbound *bufio.Reader, outbound *bufio.Writer, behaviors ...
 	outbound.Flush()
 }
 
+func GetAliases() map[string]any {
+	aliases := loadAliasSnapshot()
+	result := make(map[string]any, len(aliases))
+	for k, v := range aliases {
+		result[k] = v
+	}
+	return result
+}
+
 func SetAlias(alias string, value int) error {
 
 	rwLock.Lock()
