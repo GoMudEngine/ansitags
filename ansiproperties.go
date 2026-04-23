@@ -92,6 +92,9 @@ func (p *ansiProperties) AnsiReset() string {
 
 func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 
+	origFg := p.fg
+	origBg := p.bg
+
 	if previous != nil {
 
 		if p.fg == defaultFg256 {
@@ -147,13 +150,13 @@ func (p ansiProperties) PropagateAnsiCode(previous *ansiProperties) string {
 	} else {
 		if p.fg > -1 {
 			colorCode += ansiFgSeq[p.fg]
-		} else if p.fg == defaultFg256 {
+		} else if origFg == defaultFg256 {
 			colorCode += "\033[39m"
 		}
 
 		if p.bg > -1 {
 			colorCode += ansiBgSeq[p.bg]
-		} else if p.bg == defaultBg256 {
+		} else if origBg == defaultBg256 {
 			colorCode += "\033[49m"
 		}
 	}
