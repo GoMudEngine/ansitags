@@ -817,7 +817,218 @@ function trimTagAwareSpaces(input) {
   return out;
 }
 
-const _exports = { parse, splitString, setAlias, setAliases, loadAliases, rgb };
+/**
+ * Compute split points (1-based visible-char counts) preferring spaces.
+ * Falls back to character-based split when no space is found.
+ *
+ * @param {string} input
+ * @param {number} maxLen
+ * @returns {number[]}
+ */
+function splitPoints(input, maxLen) {
+  const openMatcher = new TagMatcher(TAG_START, TAG_OPEN_MID, TAG_END, true);
+  const closeMatcher = new TagMatcher(TAG_START, TAG_CLOSE_MID, TAG_END, false);
+  const tagBuf = new Array(MAX_TAG_SIZE);
+  let tagBufLen = 0;
+  let mode = PARSE_MODE_NONE;
+
+  const total = visibleLen(input);
+  const points = [];
+  let consumed = 0;
+  let nextTarget = maxLen;
+  let lastSpaceAt = -1;
+
+  function recordVisible(ch) {
+    consumed++;
+    if (ch === ' ') lastSpaceAt = consumed;
+    while (consumed >= nextTarget && consumed < total) {
+      let splitAt;
+      if (lastSpaceAt > 0) {
+        splitAt = lastSpaceAt;
+        nextTarget = lastSpaceAt + maxLen;
+      } else {
+        splitAt = nextTarget;
+        nextTarget = nextTarget + maxLen;
+      }
+      lastSpaceAt = -1;
+      points.push(splitAt);
+    }
+  }
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (mode === PARSE_MODE_NONE) {
+      if (ch !== TAG_START) {
+        recordVisible(ch);
+        continue;
+      }
+      mode = PARSE_MODE_MATCHING;
+    }
+
+    if (mode === PARSE_MODE_MATCHING) {
+      const openResult = openMatcher.matchNext(ch);
+      const closeResult = closeMatcher.matchNext(ch);
+
+      if (openResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+        if (!openResult.complete) continue;
+        tagBufLen = 0;
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      openMatcher.reset();
+
+      if (closeResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+        if (!closeResult.complete) continue;
+        tagBufLen = 0;
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      closeMatcher.reset();
+
+      if (openResult.complete && closeResult.complete) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+      }
+      mode = PARSE_MODE_NONE;
+      for (let j = 0; j < tagBufLen; j++) recordVisible(tagBuf[j]);
+      tagBufLen = 0;
+      continue;
+    }
+  }
+
+  return points;
+}
+
+/**
+ * Split a string containing <ansi> tags into segments of at most maxLen
+ * visible characters, preferring to break at a space. Falls back to a
+ * character-based split when no space is found within the limit.
+ *
+ * @param {string} input - Input string with ansi tags.
+ * @param {number} maxLen - Maximum visible characters per segment.
+ * @param {boolean} [trimSpace=true] - Trim leading/trailing spaces from each segment.
+ * @returns {string[]} Array of tagged string segments.
+ */
+function splitStringOnSpaces(input, maxLen, trimSpace) {
+  const doTrim = trimSpace === undefined ? true : !!trimSpace;
+
+  if (maxLen <= 0 || input.length === 0) {
+    return [input];
+  }
+
+  const totalVisible = visibleLen(input);
+  if (totalVisible <= maxLen) {
+    return [input];
+  }
+
+  const points = splitPoints(input, maxLen);
+
+  const result = [];
+  const tagStack = [];
+  let current = '';
+  let totalConsumed = 0;
+  let pointIdx = 0;
+
+  const openMatcher = new TagMatcher(TAG_START, TAG_OPEN_MID, TAG_END, true);
+  const closeMatcher = new TagMatcher(TAG_START, TAG_CLOSE_MID, TAG_END, false);
+
+  const tagBuf = new Array(MAX_TAG_SIZE);
+  let tagBufLen = 0;
+  let mode = PARSE_MODE_NONE;
+
+  function split() {
+    for (let j = tagStack.length - 1; j >= 0; j--) current += '</ansi>';
+    result.push(current);
+    current = '';
+    for (let j = 0; j < tagStack.length; j++) current += tagStack[j];
+  }
+
+  function writeVisible(ch) {
+    current += ch;
+    totalConsumed++;
+    if (pointIdx < points.length && totalConsumed === points[pointIdx] && totalConsumed < totalVisible) {
+      pointIdx++;
+      split();
+    }
+  }
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (mode === PARSE_MODE_NONE) {
+      if (ch !== TAG_START) {
+        writeVisible(ch);
+        continue;
+      }
+      mode = PARSE_MODE_MATCHING;
+    }
+
+    if (mode === PARSE_MODE_MATCHING) {
+      const openResult = openMatcher.matchNext(ch);
+      const closeResult = closeMatcher.matchNext(ch);
+
+      if (openResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+        if (!openResult.complete) continue;
+        const tagStr = tagBuf.slice(0, tagBufLen).join('');
+        tagStack.push(tagStr);
+        current += tagStr;
+        tagBufLen = 0;
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      openMatcher.reset();
+
+      if (closeResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+        if (!closeResult.complete) continue;
+        tagBufLen = 0;
+        if (tagStack.length > 0) tagStack.pop();
+        current += '</ansi>';
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      closeMatcher.reset();
+
+      if (openResult.complete && closeResult.complete) {
+        if (tagBufLen < MAX_TAG_SIZE) tagBuf[tagBufLen++] = ch;
+      }
+
+      mode = PARSE_MODE_NONE;
+      for (let j = 0; j < tagBufLen; j++) writeVisible(tagBuf[j]);
+      tagBufLen = 0;
+      continue;
+    }
+  }
+
+  if (tagBufLen > 0) {
+    for (let j = 0; j < tagBufLen; j++) writeVisible(tagBuf[j]);
+  }
+
+  if (current.length > 0) result.push(current);
+
+  if (result.length === 0) return [input];
+
+  if (doTrim) {
+    for (let i = 0; i < result.length; i++) {
+      result[i] = trimTagAwareSpaces(result[i]);
+    }
+  }
+
+  return result;
+}
+
+const _exports = { parse, splitString, splitStringOnSpaces, setAlias, setAliases, loadAliases, rgb };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = _exports;

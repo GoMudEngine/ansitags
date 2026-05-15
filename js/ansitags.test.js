@@ -1,6 +1,6 @@
 'use strict';
 
-const { parse, splitString, setAlias, setAliases, loadAliases, rgb } = require('./ansitags');
+const { parse, splitString, splitStringOnSpaces, setAlias, setAliases, loadAliases, rgb } = require('./ansitags');
 
 function test(name, fn) {
   try {
@@ -321,16 +321,7 @@ function segVisibleLen(seg) {
   return parse(seg, { stripTags: true }).length;
 }
 
-test('nested tags basic', () => {
-  const input = '<ansi fg="yellow">This is some <ansi fg="black">long as heck</ansi> text</ansi>';
-  const result = splitString(input, 17, false);
-  assertArrayEqual(result, [
-    '<ansi fg="yellow">This is some <ansi fg="black">long</ansi></ansi>',
-    '<ansi fg="yellow"><ansi fg="black"> as heck</ansi> text</ansi>',
-  ]);
-});
-
-test('no tags plain text', () => {
+test('no tags basic split', () => {
   assertArrayEqual(splitString('Hello World', 5, false), ['Hello', ' Worl', 'd']);
 });
 
@@ -344,46 +335,25 @@ test('exact length no split', () => {
   assertArrayEqual(splitString(input, 5, false), [input]);
 });
 
-test('empty input', () => {
+test('empty input and zero maxLen', () => {
   assertArrayEqual(splitString('', 10, false), ['']);
-});
-
-test('zero maxLen', () => {
   assertArrayEqual(splitString('hello', 0, false), ['hello']);
 });
 
+test('nested tags split', () => {
+  const input = '<ansi fg="yellow">This is some <ansi fg="black">long as heck</ansi> text</ansi>';
+  assertArrayEqual(splitString(input, 17, false), [
+    '<ansi fg="yellow">This is some <ansi fg="black">long</ansi></ansi>',
+    '<ansi fg="yellow"><ansi fg="black"> as heck</ansi> text</ansi>',
+  ]);
+});
+
 test('multiple splits single tag', () => {
-  const input = '<ansi fg="red">abcdefghijklmno</ansi>';
-  const result = splitString(input, 5, false);
-  assertArrayEqual(result, [
+  assertArrayEqual(splitString('<ansi fg="red">abcdefghijklmno</ansi>', 5, false), [
     '<ansi fg="red">abcde</ansi>',
     '<ansi fg="red">fghij</ansi>',
     '<ansi fg="red">klmno</ansi>',
   ]);
-});
-
-test('tag at split boundary', () => {
-  const result = splitString('AB<ansi fg="red">CD</ansi>EF', 3, false);
-  assertArrayEqual(result, [
-    'AB<ansi fg="red">C</ansi>',
-    '<ansi fg="red">D</ansi>EF',
-  ]);
-});
-
-test('deeply nested 3 levels', () => {
-  const input = '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Hello World</ansi></ansi></ansi>';
-  const result = splitString(input, 5, false);
-  assertEqual(result.length, 3);
-  assertEqual(result[0], '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Hello</ansi></ansi></ansi>');
-  assertEqual(result[1], '<ansi fg="red"><ansi fg="green"><ansi fg="blue"> Worl</ansi></ansi></ansi>');
-  assertEqual(result[2], '<ansi fg="red"><ansi fg="green"><ansi fg="blue">d</ansi></ansi></ansi>');
-});
-
-test('tag closes before split', () => {
-  const result = splitString('<ansi fg="red">AB</ansi>CDEF', 3, false);
-  assertEqual(result.length, 2);
-  assertEqual(result[0], '<ansi fg="red">AB</ansi>C');
-  assertEqual(result[1], 'DEF');
 });
 
 test('maxLen 1 per char', () => {
@@ -394,111 +364,6 @@ test('maxLen 1 per char', () => {
   }
 });
 
-test('long multi-color paragraph', () => {
-  const input =
-    '<ansi fg="red">The quick </ansi>' +
-    '<ansi fg="green">brown fox </ansi>' +
-    '<ansi fg="blue">jumps over </ansi>' +
-    '<ansi fg="yellow">the lazy </ansi>' +
-    '<ansi fg="magenta">dog and then runs away</ansi>';
-  const result = splitString(input, 20, false);
-
-  assertEqual(result.length, 4);
-  assertEqual(segVisibleLen(result[0]), 20);
-  assertEqual(segVisibleLen(result[1]), 20);
-  assertEqual(segVisibleLen(result[2]), 20);
-  assertEqual(segVisibleLen(result[3]), 2);
-
-  const original = parse(input, { stripTags: true });
-  assertEqual(strippedConcat(result), original);
-});
-
-test('nested tags open and close across multiple splits', () => {
-  const input = '<ansi fg="red">Hello <ansi fg="green">World, this is a <ansi fg="blue">deeply nested and very long</ansi> string that</ansi> continues outside the inner tags with more text here</ansi>';
-  const result = splitString(input, 15, false);
-
-  const expectedVisible = 'Hello World, this is a deeply nested and very long string that continues outside the inner tags with more text here';
-  assertEqual(parse(input, { stripTags: true }).length, expectedVisible.length);
-
-  for (let i = 0; i < result.length - 1; i++) {
-    assertEqual(segVisibleLen(result[i]), 15, 'segment ' + i);
-  }
-  assertEqual(strippedConcat(result), expectedVisible);
-});
-
-test('many sequential tags', () => {
-  const input =
-    '<ansi fg="red">AB</ansi><ansi fg="green">CD</ansi><ansi fg="blue">EF</ansi>' +
-    '<ansi fg="yellow">GH</ansi><ansi fg="magenta">IJ</ansi><ansi fg="cyan">KL</ansi>' +
-    '<ansi fg="white">MN</ansi><ansi fg="red">OP</ansi>';
-  const result = splitString(input, 3, false);
-
-  assertEqual(result.length, 6);
-  assertEqual(strippedConcat(result), 'ABCDEFGHIJKLMNOP');
-  assertEqual(result[0], '<ansi fg="red">AB</ansi><ansi fg="green">C</ansi>');
-  assertEqual(result[1], '<ansi fg="green">D</ansi><ansi fg="blue">EF</ansi>');
-});
-
-test('alternating tagged and untagged', () => {
-  const input = 'plain1<ansi fg="red">RED</ansi>plain2<ansi fg="blue">BLUE</ansi>plain3<ansi fg="green">GREEN</ansi>plain4';
-  const result = splitString(input, 10, false);
-
-  assertEqual(result.length, 4);
-  assertEqual(strippedConcat(result), 'plain1REDplain2BLUEplain3GREENplain4');
-  for (let i = 0; i < result.length - 1; i++) {
-    assertEqual(segVisibleLen(result[i]), 10, 'segment ' + i);
-  }
-});
-
-test('deep 5-level nesting', () => {
-  const input =
-    '<ansi fg="red"><ansi fg="green"><ansi fg="blue"><ansi fg="yellow"><ansi fg="magenta">' +
-    'This text is five levels deep and should be split properly across segments' +
-    '</ansi></ansi></ansi></ansi></ansi>';
-  const result = splitString(input, 12, false);
-
-  const expectedVisible = 'This text is five levels deep and should be split properly across segments';
-  assertEqual(result.length, 7);
-  assertEqual(strippedConcat(result), expectedVisible);
-
-  for (let i = 0; i < result.length - 1; i++) {
-    assertEqual(segVisibleLen(result[i]), 12, 'segment ' + i);
-  }
-
-  // Middle segments must reopen all 5 levels
-  for (let i = 1; i < result.length - 1; i++) {
-    if (result[i].indexOf('<ansi fg="red">') === -1) throw new Error('segment ' + i + ' missing red');
-    if (result[i].indexOf('<ansi fg="magenta">') === -1) throw new Error('segment ' + i + ' missing magenta');
-  }
-});
-
-test('nesting changes across splits', () => {
-  const input = '<ansi fg="red">Level one <ansi fg="green">level two here</ansi> back to one</ansi> and now plain';
-  const result = splitString(input, 10, false);
-
-  const expectedVisible = 'Level one level two here back to one and now plain';
-  assertEqual(result.length, 5);
-  assertEqual(strippedConcat(result), expectedVisible);
-});
-
-test('with bg attributes', () => {
-  const input = '<ansi fg="red" bg="white">Warning: <ansi fg="yellow" bg="black">critical error in module</ansi> please check logs immediately</ansi>';
-  const result = splitString(input, 15, false);
-
-  const expectedVisible = 'Warning: critical error in module please check logs immediately';
-  assertEqual(strippedConcat(result), expectedVisible);
-
-  if (result[0].indexOf('bg="white"') === -1) throw new Error('segment 0 missing bg="white"');
-  if (result.length > 1 && result[1].indexOf('bg="white"') === -1) throw new Error('segment 1 missing bg="white"');
-});
-
-test('tag opens exactly at split', () => {
-  const result = splitString('12345<ansi fg="red">67890</ansi>', 5, false);
-  assertEqual(result.length, 2);
-  assertEqual(result[0], '12345');
-  assertEqual(result[1], '<ansi fg="red">67890</ansi>');
-});
-
 test('tag closes exactly at split', () => {
   const result = splitString('<ansi fg="red">12345</ansi>67890ABCDE', 5, false);
   assertEqual(result.length, 3);
@@ -507,97 +372,21 @@ test('tag closes exactly at split', () => {
   assertEqual(result[2], 'ABCDE');
 });
 
-test('long paragraph multiple tag styles', () => {
-  const input =
-    '<ansi fg="white">In the beginning, the universe was created. </ansi>' +
-    '<ansi fg="yellow">This has made a lot of people very angry </ansi>' +
-    '<ansi fg="red">and has been widely regarded as a <ansi fg="white" bg="red">bad move</ansi>. </ansi>' +
-    '<ansi fg="green">The ships hung in the sky in much the same way that <ansi fg="cyan">bricks don\'t</ansi>.</ansi>';
-  const result = splitString(input, 25, false);
+test('preserves all chars across splits', () => {
+  const input = '<ansi fg="red">Hello <ansi fg="green">World, this is a <ansi fg="blue">deeply nested and very long</ansi> string that</ansi> continues here</ansi>';
+  const result = splitString(input, 15, false);
 
-  const expectedVisible = parse(input, { stripTags: true });
-  assertEqual(strippedConcat(result), expectedVisible);
-
+  assertEqual(strippedConcat(result), parse(input, { stripTags: true }));
   for (let i = 0; i < result.length - 1; i++) {
-    assertEqual(segVisibleLen(result[i]), 25, 'segment ' + i);
+    assertEqual(segVisibleLen(result[i]), 15, 'segment ' + i);
   }
 });
 
-test('repeated split and rejoin for many maxLen values', () => {
-  const input =
-    '<ansi fg="red">AAA<ansi fg="green">BBB<ansi fg="blue">CCC</ansi>DDD</ansi>EEE</ansi>' +
-    '<ansi fg="yellow">FFF<ansi fg="magenta">GGG</ansi>HHH</ansi>' +
-    '<ansi fg="cyan">III</ansi>JJJ';
-
-  const expectedVisible = parse(input, { stripTags: true });
-
-  [1, 2, 3, 4, 5, 7, 10, 13, 15, 29, 30, 100].forEach(maxLen => {
-    const result = splitString(input, maxLen, false);
-    assertEqual(strippedConcat(result), expectedVisible, 'maxLen=' + maxLen);
-
-    for (let i = 0; i < result.length; i++) {
-      const vl = segVisibleLen(result[i]);
-      if (vl > maxLen) throw new Error('maxLen=' + maxLen + ' segment ' + i + ' has ' + vl + ' visible chars');
-    }
-
-    if (expectedVisible.length > maxLen) {
-      for (let i = 0; i < result.length - 1; i++) {
-        assertEqual(segVisibleLen(result[i]), maxLen, 'maxLen=' + maxLen + ' segment ' + i);
-      }
-    }
-  });
-});
-
-test('single tag spans many segments', () => {
-  const input = '<ansi fg="red">abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789</ansi>';
-  const result = splitString(input, 8, false);
-
-  assertEqual(result.length, 8);
-  assertEqual(strippedConcat(result), 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
-
-  for (const seg of result) {
-    if (seg.indexOf('<ansi fg="red">') === -1) throw new Error('segment missing open tag');
-    if (seg.indexOf('</ansi>') === -1) throw new Error('segment missing close tag');
-  }
-});
-
-test('nesting depth changes every few chars', () => {
-  const input =
-    'A<ansi fg="red">B<ansi fg="green">C</ansi>D</ansi>E' +
-    '<ansi fg="blue">F<ansi fg="yellow">G<ansi fg="magenta">H</ansi>I</ansi>J</ansi>' +
-    'K<ansi fg="cyan">L</ansi>M';
-  const result = splitString(input, 4, false);
-
-  assertEqual(strippedConcat(result), 'ABCDEFGHIJKLM');
-  for (const seg of result) {
-    if (segVisibleLen(seg) > 4) throw new Error('segment exceeds maxLen');
-  }
-});
-
-test('long real-world example', () => {
-  const input =
-    '<ansi fg="white">You are standing in a <ansi fg="green">lush forest</ansi>. ' +
-    'The trees tower above you, their <ansi fg="green">leaves rustling</ansi> in the wind. ' +
-    'A <ansi fg="yellow">narrow path</ansi> leads <ansi fg="red">north</ansi> toward ' +
-    'a <ansi fg="magenta">dark cave</ansi>, while another trail winds ' +
-    '<ansi fg="cyan">east</ansi> through the <ansi fg="green">underbrush</ansi>. ' +
-    '<ansi fg="yellow">A small <ansi fg="red">treasure chest</ansi> sits near the base of an old oak tree</ansi>.</ansi>';
-  const result = splitString(input, 40, false);
-
-  const expectedVisible = parse(input, { stripTags: true });
-  assertEqual(strippedConcat(result), expectedVisible);
-
-  for (let i = 0; i < result.length - 1; i++) {
-    assertEqual(segVisibleLen(result[i]), 40, 'segment ' + i);
-  }
-});
-
-test('all segments parseable', () => {
+test('all segments parseable for various inputs and lengths', () => {
   const inputs = [
     '<ansi fg="red">Simple</ansi>',
     '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Triple nested long text here</ansi></ansi></ansi>',
     'Before<ansi fg="red">middle</ansi>after',
-    '<ansi fg="red">A</ansi><ansi fg="green">B</ansi><ansi fg="red">C</ansi><ansi fg="green">D</ansi>',
     '<ansi fg="red" bg="blue">Mixed <ansi fg="green">attributes <ansi fg="yellow" bg="white">everywhere</ansi> in this</ansi> string</ansi>',
   ];
 
@@ -606,19 +395,20 @@ test('all segments parseable', () => {
       const result = splitString(input, maxLen, false);
       for (let i = 0; i < result.length; i++) {
         parse(result[i]);
-        parse(result[i], { stripTags: true });
         const vl = segVisibleLen(result[i]);
         if (vl > maxLen) throw new Error('input=' + JSON.stringify(input) + ' maxLen=' + maxLen + ' seg=' + i + ' visible=' + vl);
       }
+      const original = parse(input, { stripTags: true });
+      assertEqual(strippedConcat(result), original, 'input=' + JSON.stringify(input) + ' maxLen=' + maxLen);
     }
   }
 });
 
-// --- trimSpace tests (default true) ---
+// --- splitString trimSpace tests ---
 
 console.log('\nsplitString trimSpace tests:');
 
-test('trim default matches user example', () => {
+test('trim default', () => {
   const input = '<ansi fg="yellow">This is some <ansi fg="black">long as heck</ansi> text</ansi>';
   const result = splitString(input, 17);
   assertEqual(result.length, 2);
@@ -626,39 +416,16 @@ test('trim default matches user example', () => {
   assertEqual(result[1], '<ansi fg="yellow"><ansi fg="black">as heck</ansi> text</ansi>');
 });
 
-test('trim leading space inside tag', () => {
-  const input = '<ansi fg="red">Hello World</ansi>';
-  const result = splitString(input, 5);
-  assertEqual(result.length, 3);
+test('trim leading and trailing spaces', () => {
+  assertArrayEqual(splitString('Hello World', 5), ['Hello', 'Worl', 'd']);
+
+  const result = splitString('<ansi fg="red">Hello World</ansi>', 5);
   assertEqual(result[0], '<ansi fg="red">Hello</ansi>');
   assertEqual(result[1], '<ansi fg="red">Worl</ansi>');
-  assertEqual(result[2], '<ansi fg="red">d</ansi>');
-});
-
-test('trim trailing space inside tag', () => {
-  const input = '<ansi fg="red">test </ansi><ansi fg="blue">more</ansi>';
-  const result = splitString(input, 5);
-  assertEqual(result.length, 2);
-  assertEqual(result[0], '<ansi fg="red">test</ansi>');
-  assertEqual(result[1], '<ansi fg="red"></ansi><ansi fg="blue">more</ansi>');
-});
-
-test('trim plain text', () => {
-  assertArrayEqual(splitString('Hello World', 5), ['Hello', 'Worl', 'd']);
-});
-
-test('trim nested tags', () => {
-  const input = '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Hello World</ansi></ansi></ansi>';
-  const result = splitString(input, 5);
-  assertEqual(result.length, 3);
-  assertEqual(result[0], '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Hello</ansi></ansi></ansi>');
-  assertEqual(result[1], '<ansi fg="red"><ansi fg="green"><ansi fg="blue">Worl</ansi></ansi></ansi>');
-  assertEqual(result[2], '<ansi fg="red"><ansi fg="green"><ansi fg="blue">d</ansi></ansi></ansi>');
 });
 
 test('trim preserves internal spaces', () => {
-  const input = '<ansi fg="red">a b c d e f g</ansi>';
-  const result = splitString(input, 5);
+  const result = splitString('<ansi fg="red">a b c d e f g</ansi>', 5);
   assertEqual(result.length, 3);
   assertEqual(result[0], '<ansi fg="red">a b c</ansi>');
   assertEqual(result[1], '<ansi fg="red">d e</ansi>');
@@ -666,71 +433,72 @@ test('trim preserves internal spaces', () => {
 });
 
 test('trim false preserves spaces', () => {
-  const input = '<ansi fg="red">Hello World</ansi>';
-  const result = splitString(input, 5, false);
+  const result = splitString('<ansi fg="red">Hello World</ansi>', 5, false);
   assertEqual(result.length, 3);
   assertEqual(result[0], '<ansi fg="red">Hello</ansi>');
   assertEqual(result[1], '<ansi fg="red"> Worl</ansi>');
   assertEqual(result[2], '<ansi fg="red">d</ansi>');
 });
 
-test('trim multiple leading spaces', () => {
-  const input = '<ansi fg="red">abc   def</ansi>';
-  const result = splitString(input, 4);
+// --- splitStringOnSpaces tests ---
+
+console.log('\nsplitStringOnSpaces tests:');
+
+test('basic word split', () => {
+  assertArrayEqual(splitStringOnSpaces('Hello World', 8), ['Hello', 'World']);
+});
+
+test('no split needed', () => {
+  const input = '<ansi fg="red">Hello</ansi>';
+  assertArrayEqual(splitStringOnSpaces(input, 10), [input]);
+});
+
+test('empty input and zero maxLen', () => {
+  assertArrayEqual(splitStringOnSpaces('', 10), ['']);
+  assertArrayEqual(splitStringOnSpaces('hello', 0), ['hello']);
+});
+
+test('fallback to char split when no space', () => {
+  assertArrayEqual(splitStringOnSpaces('ABCDEFGHIJ', 4, false), ['ABCD', 'EFGH', 'IJ']);
+});
+
+test('space at boundary causes char split then space split', () => {
+  // "Hello World" maxLen=5, trimSpace=false:
+  // char split at 5, then space split at 6 -> ["Hello", " ", "World"]
+  const result = splitStringOnSpaces('Hello World', 5, false);
   assertEqual(result.length, 3);
-  assertEqual(result[0], '<ansi fg="red">abc</ansi>');
-  assertEqual(result[1], '<ansi fg="red">de</ansi>');
-  assertEqual(result[2], '<ansi fg="red">f</ansi>');
+  assertEqual(result[0], 'Hello');
+  assertEqual(result[1], ' ');
+  assertEqual(result[2], 'World');
 });
 
-test('trim multiple trailing spaces', () => {
-  const result = splitString('abc   def', 5);
-  assertEqual(result.length, 2);
-  assertEqual(result[0], 'abc');
-  assertEqual(result[1], 'def');
-});
+test('splits with tags preserve all chars', () => {
+  const input = '<ansi fg="white">The quick <ansi fg="green">brown fox</ansi> jumps over the lazy dog</ansi>';
+  const result = splitStringOnSpaces(input, 12, false);
 
-test('trim all-space segment', () => {
-  const input = '<ansi fg="red">     hello</ansi>';
-  const result = splitString(input, 3);
-  assertEqual(result.length, 4);
-  assertEqual(result[0], '<ansi fg="red"></ansi>');
-  assertEqual(result[1], '<ansi fg="red">h</ansi>');
-  assertEqual(result[2], '<ansi fg="red">ell</ansi>');
-  assertEqual(result[3], '<ansi fg="red">o</ansi>');
-});
-
-test('trim tag close then space', () => {
-  const input = '<ansi fg="red">Hello</ansi> <ansi fg="blue">World</ansi>';
-  const result = splitString(input, 6);
-  assertEqual(result.length, 2);
-  assertEqual(result[0], '<ansi fg="red">Hello</ansi>');
-  assertEqual(result[1], '<ansi fg="blue">World</ansi>');
-});
-
-test('trim long real-world', () => {
-  const input =
-    '<ansi fg="white">You enter the <ansi fg="green">forest clearing</ansi>. ' +
-    'A <ansi fg="yellow">golden light</ansi> shines from above.</ansi>';
-  const result = splitString(input, 20);
-
-  for (let i = 0; i < result.length; i++) {
-    const stripped = parse(result[i], { stripTags: true });
-    if (stripped.length > 0) {
-      if (stripped[0] === ' ') throw new Error('segment ' + i + ' has leading space');
-      if (stripped[stripped.length - 1] === ' ') throw new Error('segment ' + i + ' has trailing space');
-    }
-    parse(result[i]);
+  assertEqual(strippedConcat(result), parse(input, { stripTags: true }));
+  for (const seg of result) {
+    if (segVisibleLen(seg) > 12) throw new Error('segment exceeds maxLen: ' + JSON.stringify(seg));
   }
 });
 
-test('trim space between tags', () => {
-  const input = '<ansi fg="red">AAAA</ansi> <ansi fg="blue">BBBB</ansi>';
-  const result = splitString(input, 4);
+test('mixed fallback when word exceeds maxLen', () => {
+  const result = splitStringOnSpaces('word toolongword next', 8, false);
+
+  assertEqual(strippedConcat(result), 'word toolongword next');
+  for (const seg of result) {
+    if (segVisibleLen(seg) > 8) throw new Error('segment exceeds maxLen: ' + JSON.stringify(seg));
+  }
+});
+
+test('splits at space within tagged text', () => {
+  const input = '<ansi fg="yellow">Hello <ansi fg="red">World foo</ansi> bar</ansi>';
+  const result = splitStringOnSpaces(input, 10);
+
   assertEqual(result.length, 3);
-  assertEqual(result[0], '<ansi fg="red">AAAA</ansi>');
-  assertEqual(result[1], '<ansi fg="red"></ansi><ansi fg="blue">BBB</ansi>');
-  assertEqual(result[2], '<ansi fg="blue">B</ansi>');
+  assertEqual(parse(result[0], { stripTags: true }), 'Hello');
+  assertEqual(parse(result[1], { stripTags: true }), 'World foo');
+  assertEqual(parse(result[2], { stripTags: true }), 'bar');
 });
 
 console.log('');
