@@ -522,7 +522,302 @@ function rgb(colorCode) {
   return { r, g, b, hex: colorHex(colorCode) };
 }
 
-const _exports = { parse, setAlias, setAliases, loadAliases, rgb };
+/**
+ * Count visible (non-tag) characters in a string containing <ansi> tags.
+ *
+ * @param {string} input
+ * @returns {number}
+ */
+function visibleLen(input) {
+  let count = 0;
+  const openMatcher = new TagMatcher(TAG_START, TAG_OPEN_MID, TAG_END, true);
+  const closeMatcher = new TagMatcher(TAG_START, TAG_CLOSE_MID, TAG_END, false);
+  let tagLen = 0;
+  let mode = PARSE_MODE_NONE;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (mode === PARSE_MODE_NONE) {
+      if (ch !== TAG_START) {
+        count++;
+        continue;
+      }
+      mode = PARSE_MODE_MATCHING;
+    }
+    if (mode === PARSE_MODE_MATCHING) {
+      const openResult = openMatcher.matchNext(ch);
+      const closeResult = closeMatcher.matchNext(ch);
+      if (openResult.matched) {
+        tagLen++;
+        if (openResult.complete) {
+          tagLen = 0;
+          mode = PARSE_MODE_NONE;
+          openMatcher.reset();
+          closeMatcher.reset();
+        }
+        continue;
+      }
+      openMatcher.reset();
+      if (closeResult.matched) {
+        tagLen++;
+        if (closeResult.complete) {
+          tagLen = 0;
+          mode = PARSE_MODE_NONE;
+          openMatcher.reset();
+          closeMatcher.reset();
+        }
+        continue;
+      }
+      closeMatcher.reset();
+      if (openResult.complete && closeResult.complete) {
+        tagLen++;
+      }
+      mode = PARSE_MODE_NONE;
+      count += tagLen;
+      tagLen = 0;
+      continue;
+    }
+  }
+  if (tagLen > 0) {
+    count += tagLen;
+  }
+  return count;
+}
+
+/**
+ * Split a string containing <ansi> tags into segments of at most maxLen
+ * visible characters. Tags are properly closed at each split point and
+ * reopened in the next segment.
+ *
+ * @param {string} input - Input string with ansi tags.
+ * @param {number} maxLen - Maximum visible characters per segment.
+ * @param {boolean} [trimSpace=true] - Trim leading/trailing spaces from each segment.
+ * @returns {string[]} Array of tagged string segments.
+ */
+function splitString(input, maxLen, trimSpace) {
+  const doTrim = trimSpace === undefined ? true : !!trimSpace;
+
+  if (maxLen <= 0 || input.length === 0) {
+    return [input];
+  }
+
+  const totalVisible = visibleLen(input);
+  if (totalVisible <= maxLen) {
+    return [input];
+  }
+
+  const result = [];
+  const tagStack = [];
+  let current = '';
+  let visCount = 0;
+  let totalConsumed = 0;
+
+  const openMatcher = new TagMatcher(TAG_START, TAG_OPEN_MID, TAG_END, true);
+  const closeMatcher = new TagMatcher(TAG_START, TAG_CLOSE_MID, TAG_END, false);
+
+  const tagBuf = new Array(MAX_TAG_SIZE);
+  let tagBufLen = 0;
+  let mode = PARSE_MODE_NONE;
+
+  function split() {
+    for (let j = tagStack.length - 1; j >= 0; j--) {
+      current += '</ansi>';
+    }
+    result.push(current);
+    current = '';
+    for (let j = 0; j < tagStack.length; j++) {
+      current += tagStack[j];
+    }
+    visCount = 0;
+  }
+
+  function writeVisible(ch) {
+    current += ch;
+    visCount++;
+    totalConsumed++;
+    if (visCount >= maxLen && totalConsumed < totalVisible) {
+      split();
+    }
+  }
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (mode === PARSE_MODE_NONE) {
+      if (ch !== TAG_START) {
+        writeVisible(ch);
+        continue;
+      }
+      mode = PARSE_MODE_MATCHING;
+    }
+
+    if (mode === PARSE_MODE_MATCHING) {
+      const openResult = openMatcher.matchNext(ch);
+      const closeResult = closeMatcher.matchNext(ch);
+
+      if (openResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) {
+          tagBuf[tagBufLen++] = ch;
+        }
+        if (!openResult.complete) {
+          continue;
+        }
+        const tagStr = tagBuf.slice(0, tagBufLen).join('');
+        tagStack.push(tagStr);
+        current += tagStr;
+        tagBufLen = 0;
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      openMatcher.reset();
+
+      if (closeResult.matched) {
+        if (tagBufLen < MAX_TAG_SIZE) {
+          tagBuf[tagBufLen++] = ch;
+        }
+        if (!closeResult.complete) {
+          continue;
+        }
+        tagBufLen = 0;
+        if (tagStack.length > 0) {
+          tagStack.pop();
+        }
+        current += '</ansi>';
+        mode = PARSE_MODE_NONE;
+        openMatcher.reset();
+        closeMatcher.reset();
+        continue;
+      }
+      closeMatcher.reset();
+
+      if (openResult.complete && closeResult.complete) {
+        if (tagBufLen < MAX_TAG_SIZE) {
+          tagBuf[tagBufLen++] = ch;
+        }
+      }
+
+      mode = PARSE_MODE_NONE;
+
+      for (let j = 0; j < tagBufLen; j++) {
+        writeVisible(tagBuf[j]);
+      }
+      tagBufLen = 0;
+      continue;
+    }
+  }
+
+  if (tagBufLen > 0) {
+    for (let j = 0; j < tagBufLen; j++) {
+      writeVisible(tagBuf[j]);
+    }
+  }
+
+  if (current.length > 0) {
+    result.push(current);
+  }
+
+  if (result.length === 0) {
+    return [input];
+  }
+
+  if (doTrim) {
+    for (let i = 0; i < result.length; i++) {
+      result[i] = trimTagAwareSpaces(result[i]);
+    }
+  }
+
+  return result;
+}
+
+function trimTagAwareSpaces(input) {
+  const n = input.length;
+  if (n === 0) return input;
+
+  const isVisible = new Uint8Array(n);
+
+  const openMatcher = new TagMatcher(TAG_START, TAG_OPEN_MID, TAG_END, true);
+  const closeMatcher = new TagMatcher(TAG_START, TAG_CLOSE_MID, TAG_END, false);
+  let mode = PARSE_MODE_NONE;
+  let tagBufStart = 0;
+
+  for (let i = 0; i < n; i++) {
+    const ch = input[i];
+    if (mode === PARSE_MODE_NONE) {
+      if (ch !== TAG_START) {
+        isVisible[i] = 1;
+        continue;
+      }
+      mode = PARSE_MODE_MATCHING;
+      tagBufStart = i;
+    }
+    if (mode === PARSE_MODE_MATCHING) {
+      const openResult = openMatcher.matchNext(ch);
+      const closeResult = closeMatcher.matchNext(ch);
+
+      if (openResult.matched) {
+        if (openResult.complete) {
+          mode = PARSE_MODE_NONE;
+          openMatcher.reset();
+          closeMatcher.reset();
+        }
+        continue;
+      }
+      openMatcher.reset();
+
+      if (closeResult.matched) {
+        if (closeResult.complete) {
+          mode = PARSE_MODE_NONE;
+          openMatcher.reset();
+          closeMatcher.reset();
+        }
+        continue;
+      }
+      closeMatcher.reset();
+
+      mode = PARSE_MODE_NONE;
+      for (let j = tagBufStart; j <= i; j++) {
+        isVisible[j] = 1;
+      }
+      continue;
+    }
+  }
+
+  if (mode === PARSE_MODE_MATCHING) {
+    for (let j = tagBufStart; j < n; j++) {
+      isVisible[j] = 1;
+    }
+  }
+
+  let firstNonSpace = -1;
+  let lastNonSpace = -1;
+  for (let i = 0; i < n; i++) {
+    if (isVisible[i] && input[i] !== ' ') {
+      if (firstNonSpace === -1) firstNonSpace = i;
+      lastNonSpace = i;
+    }
+  }
+
+  if (firstNonSpace === -1) {
+    let out = '';
+    for (let i = 0; i < n; i++) {
+      if (!isVisible[i]) out += input[i];
+    }
+    return out;
+  }
+
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    if (isVisible[i] && (i < firstNonSpace || i > lastNonSpace)) {
+      continue;
+    }
+    out += input[i];
+  }
+  return out;
+}
+
+const _exports = { parse, splitString, setAlias, setAliases, loadAliases, rgb };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = _exports;
