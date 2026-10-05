@@ -267,7 +267,7 @@ func extractProperties(tagStr string) *ansiProperties {
 		switch key {
 		case "fg":
 			if num, err := strconv.Atoi(val); err == nil {
-				ret.fg = num
+				ret.fg = colorInRange(num, defaultFg256)
 			} else if colorVal, ok := aliases[val]; ok {
 				ret.fg = colorVal
 			} else {
@@ -275,7 +275,7 @@ func extractProperties(tagStr string) *ansiProperties {
 			}
 		case "bg":
 			if num, err := strconv.Atoi(val); err == nil {
-				ret.bg = num
+				ret.bg = colorInRange(num, defaultBg256)
 			} else if colorVal, ok := aliases[val]; ok {
 				ret.bg = colorVal
 			} else {
@@ -313,6 +313,16 @@ func extractProperties(tagStr string) *ansiProperties {
 	}
 
 	return ret
+}
+
+// colorInRange keeps a numeric color inside the 256 entry color tables. A
+// number past the end would index out of range and panic, so it falls back
+// to the default, the same as an unknown alias name.
+func colorInRange(num int, fallback int) int {
+	if num > 255 {
+		return fallback
+	}
+	return num
 }
 
 // Speed up by pre-computing these values
