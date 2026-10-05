@@ -337,3 +337,55 @@ func BenchmarkParseHTML(b *testing.B) {
 		Parse(testStr, HTML)
 	}
 }
+
+// A numeric color past 255 has no entry in the color tables. It falls back
+// to the default instead of indexing out of range.
+func TestParseColorOutOfRange(t *testing.T) {
+
+	testCases := map[string]struct {
+		input string
+		same  string
+	}{
+		"fg past the end":  {`<ansi fg="999">x</ansi>`, `<ansi>x</ansi>`},
+		"fg one past":      {`<ansi fg="256">x</ansi>`, `<ansi>x</ansi>`},
+		"bg past the end":  {`<ansi fg="9" bg="300">x</ansi>`, `<ansi fg="9">x</ansi>`},
+		"last valid color": {`<ansi fg="255">x</ansi>`, `<ansi fg="255">x</ansi>`},
+		"nested":           {`<ansi fg="9">a<ansi fg="999">b</ansi>c</ansi>`, `<ansi fg="9">a<ansi>b</ansi>c</ansi>`},
+	}
+
+	for name, testCase := range testCases {
+
+		t.Run(name, func(t *testing.T) {
+
+			for _, behaviors := range [][]ParseBehavior{nil, {HTML}, {Monochrome}} {
+				assert.NotPanics(t, func() { Parse(testCase.input, behaviors...) })
+				assert.Equal(t, Parse(testCase.same, behaviors...), Parse(testCase.input, behaviors...))
+
+				var streamed bytes.Buffer
+				assert.NotPanics(t, func() {
+					ParseStreaming(bufio.NewReader(strings.NewReader(testCase.input)), bufio.NewWriter(&streamed), behaviors...)
+				})
+				assert.Equal(t, Parse(testCase.same, behaviors...), streamed.String())
+			}
+		})
+	}
+
+	assert.Contains(t, Parse(`<ansi fg="255">x</ansi>`, HTML), `color:`)
+}
+
+// An alias file entry outside 0-255 is skipped, so it can never reach the
+// color tables.
+func TestLoadAliasesSkipsOutOfRange(t *testing.T) {
+
+	path := t.TempDir() + "/aliases.yaml"
+	err := ioutil.WriteFile(path, []byte("colors:\n  rangetest-good: 9\n  rangetest-bad: 999\n  rangetest-negative: -4\n"), 0644)
+	assert.NoError(t, err)
+	assert.NoError(t, LoadAliases(path))
+
+	aliases := GetAliases()
+	assert.Equal(t, 9, aliases["rangetest-good"])
+	assert.NotContains(t, aliases, "rangetest-bad")
+	assert.NotContains(t, aliases, "rangetest-negative")
+
+	assert.NotPanics(t, func() { Parse(`<ansi fg="rangetest-bad">x</ansi>`, HTML) })
+}

@@ -476,7 +476,11 @@ func LoadAliases(yamlFilePaths ...string) error {
 
 					if numVal, err := strconv.Atoi(real); err == nil {
 
-						newMap[alias] = numVal
+						// A color outside 0-255 would index past the color
+						// tables, so the entry is skipped
+						if numVal >= 0 && numVal <= 255 {
+							newMap[alias] = numVal
+						}
 
 					} else {
 
